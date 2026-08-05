@@ -1,0 +1,14 @@
+# Normalise to LF in the repository regardless of contributor platform.
+* text=auto eol=lf
+
+# Gradle wrapper: the shell script must stay LF or it breaks on Linux/macOS;
+# the .bat must stay CRLF or it breaks on Windows.
+gradlew        text eol=lf
+gradlew.bat    text eol=crlf
+*.sh           text eol=lf
+*.bat          text eol=crlf
+
+# Binary
+*.jar          binary
+*.png          binary
+*.jpg          binary

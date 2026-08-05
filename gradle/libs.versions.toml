@@ -1,0 +1,60 @@
+[versions]
+# MCP Java SDK 2.0.0 (released 2026-06-11) tracks the 2025-11-25 protocol revision.
+# Floor is Java 17; we target 21. See docs/adr/001.
+mcpSdk = "2.0.0"
+springBoot = "3.5.3"
+springDependencyManagement = "1.1.7"
+# JSqlParser is what makes the SQL allowlist an AST check rather than a regex.
+jsqlparser = "5.3"
+hikari = "6.3.0"
+kafkaClients = "4.0.0"
+swaggerParser = "2.1.31"
+slf4j = "2.0.17"
+logback = "1.5.18"
+junit = "5.12.2"
+assertj = "3.27.3"
+testcontainers = "1.21.3"
+postgresql = "42.7.7"
+
+[libraries]
+# --- MCP ---
+# `mcp` is the convenience bundle (core + Jackson binding + the bundled transports).
+mcp = { module = "io.modelcontextprotocol.sdk:mcp", version.ref = "mcpSdk" }
+mcp-test = { module = "io.modelcontextprotocol.sdk:mcp-test", version.ref = "mcpSdk" }
+
+# --- shared ---
+slf4j-api = { module = "org.slf4j:slf4j-api", version.ref = "slf4j" }
+logback-classic = { module = "ch.qos.logback:logback-classic", version.ref = "logback" }
+
+# --- adapter-jdbc ---
+jsqlparser = { module = "com.github.jsqlparser:jsqlparser", version.ref = "jsqlparser" }
+hikaricp = { module = "com.zaxxer:HikariCP", version.ref = "hikari" }
+postgresql = { module = "org.postgresql:postgresql", version.ref = "postgresql" }
+
+# --- adapter-kafka ---
+kafka-clients = { module = "org.apache.kafka:kafka-clients", version.ref = "kafkaClients" }
+
+# --- adapter-http ---
+swagger-parser = { module = "io.swagger.parser.v3:swagger-parser", version.ref = "swaggerParser" }
+
+# --- server-app ---
+spring-boot-starter = { module = "org.springframework.boot:spring-boot-starter" }
+spring-boot-starter-web = { module = "org.springframework.boot:spring-boot-starter-web" }
+spring-boot-starter-actuator = { module = "org.springframework.boot:spring-boot-starter-actuator" }
+spring-boot-starter-oauth2-resource-server = { module = "org.springframework.boot:spring-boot-starter-oauth2-resource-server" }
+spring-boot-starter-security = { module = "org.springframework.boot:spring-boot-starter-security" }
+spring-boot-starter-test = { module = "org.springframework.boot:spring-boot-starter-test" }
+
+# --- testing ---
+junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
+junit-jupiter = { module = "org.junit.jupiter:junit-jupiter" }
+junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher" }
+assertj-core = { module = "org.assertj:assertj-core", version.ref = "assertj" }
+testcontainers-bom = { module = "org.testcontainers:testcontainers-bom", version.ref = "testcontainers" }
+testcontainers-junit = { module = "org.testcontainers:junit-jupiter" }
+testcontainers-postgresql = { module = "org.testcontainers:postgresql" }
+testcontainers-kafka = { module = "org.testcontainers:kafka" }
+
+[plugins]
+spring-boot = { id = "org.springframework.boot", version.ref = "springBoot" }
+spring-dependency-management = { id = "io.spring.dependency-management", version.ref = "springDependencyManagement" }

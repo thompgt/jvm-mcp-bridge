@@ -1,0 +1,21 @@
+build/
+.gradle/
+!gradle/wrapper/gradle-wrapper.jar
+
+*.class
+*.log
+*.jfr
+*.hprof
+
+.idea/
+*.iml
+.vscode/
+.settings/
+.classpath
+.project
+
+# Local operator config — bridge.yaml holds real hostnames and credentials.
+# Only bridge.example.yaml is tracked.
+bridge.yaml
+bridge.local.yaml
+.env

@@ -20,7 +20,7 @@ and every call is bounded and audited.
 - [x] **1.1 `mcp-core` registry** — `BridgeTool`, `ToolRegistry`, JSON-schema helpers,
       `ToolOutcome`, and the error mapping that turns backend failures into model-actionable
       MCP errors.
-- [ ] **1.2 `mcp-policy` engine** — `PolicyEngine`, `PolicyProfile`, `Decision` (allow/deny
+- [x] **1.2 `mcp-policy` engine** — `PolicyEngine`, `PolicyProfile`, `Decision` (allow/deny
       with the rule that fired), resource allowlists, row/byte caps, timeouts, dry-run,
       and the structured `AuditSink`.
 - [ ] **1.3 SQL validation at the AST** — JSqlParser; reject anything that is not a single

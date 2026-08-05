@@ -9,7 +9,7 @@
 - [x] **0.1 Gradle multi-module skeleton** — seven modules, pinned wrapper 8.14.3, version
       catalog, `-Werror` and release 21 applied from the root, MIT licence, `.gitattributes`.
 - [x] **0.2 Context docs** — CLAUDE.md, WORKPLAN.md, README, ADRs 001–003.
-- [ ] **0.3 CI + compose** — GitHub Actions with a fast pure-JVM job gating a Docker
+- [x] **0.3 CI + compose** — GitHub Actions with a fast pure-JVM job gating a Docker
       integration job; `docker-compose.yml` with Postgres and Redpanda.
 
 ## Phase 1 — JDBC vertical slice

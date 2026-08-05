@@ -1,0 +1,45 @@
+# Backing services for local development and the quickstart. Integration tests do NOT use
+# this file — Testcontainers starts its own throwaway instances so a stale local volume can
+# never make a test pass.
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: orders
+      POSTGRES_USER: bridge
+      POSTGRES_PASSWORD: bridge
+    ports:
+      - "5432:5432"
+    volumes:
+      # Seeds the small orders/customers schema the README quickstart queries against.
+      - ./docs/sample/seed.sql:/docker-entrypoint-initdb.d/10-seed.sql:ro
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bridge -d orders"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Redpanda rather than Kafka: single binary, no ZooKeeper/KRaft config, and it speaks the
+  # Kafka protocol that adapter-kafka talks. Only needed from Phase 3 onward.
+  redpanda:
+    image: redpandadata/redpanda:v25.1.7
+    profiles: ["kafka"]
+    command:
+      - redpanda
+      - start
+      - --smp=1
+      - --overprovisioned
+      - --node-id=0
+      - --kafka-addr=PLAINTEXT://0.0.0.0:29092,OUTSIDE://0.0.0.0:9092
+      - --advertise-kafka-addr=PLAINTEXT://redpanda:29092,OUTSIDE://localhost:9092
+    ports:
+      - "9092:9092"
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep -q 'Healthy:.*true'"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  postgres-data:

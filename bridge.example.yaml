@@ -1,0 +1,80 @@
+# Copy to bridge.yaml (gitignored) and edit. One file describes every backend and the policy
+# that applies to it; onboarding a system needs no code change.
+
+bridge:
+  # read-only | dry-run | read-write
+  #
+  # read-only  — the default, and the only mode that needs no further thought.
+  # dry-run    — validates and returns the plan (parsed SQL, resolved tables) without
+  #              touching the backend. Use this to audit the guardrails before granting
+  #              anyone real access.
+  # read-write — still refuses every write unless the target is on a `allow-write-*` list.
+  #              Enabling this mode alone grants nothing. See docs/adr/003.
+  mode: read-only
+
+  # stdio | http. stdio is what an MCP client launches as a subprocess; http serves the
+  # Streamable HTTP transport on /mcp for a shared deployment (Phase 2).
+  transport: stdio
+
+  audit:
+    # Every call — allowed or denied — is written here as one JSON object per line, with the
+    # rule that fired. Denials without a reason are useless; the reason is the point.
+    file: audit.log
+
+  datasources:
+    - name: orders-db
+      url: jdbc:postgresql://localhost:5432/orders
+      username: ${DB_USER:bridge}
+      password: ${DB_PASSWORD:bridge}
+      policy:
+        # Matched against table names resolved from the parsed SQL, never against the raw
+        # query text. A table reached through a join or a view is checked the same way.
+        allow-tables:
+          - customers
+          - orders
+          - order_items
+        # `internal_audit` is intentionally absent: the guardrail tests assert that a join
+        # onto it is denied even though the rest of the query is legitimate.
+
+        max-rows: 200            # hard cap; the tool description states it to the model
+        max-result-bytes: 1MB    # stops a wide TEXT column blowing the context window
+        statement-timeout: 5s    # applied on the connection, not just hoped for
+
+        # Values are replaced with "[redacted]" before leaving the process. Patterns match
+        # `table.column`, with `*` for any table.
+        redact-columns:
+          - "*.email"
+          - "*.ssn"
+          - "*_token"
+          - "*.password*"
+
+        # Uncomment ONLY with mode: read-write. There is no wildcard — `*` is rejected at
+        # config load, deliberately.
+        # allow-write-tables:
+        #   - order_items
+
+  # Phase 3+. Present here so the shape is visible; unconfigured backends register no tools.
+  #
+  # brokers:
+  #   - name: orders-kafka
+  #     bootstrap-servers: localhost:9092
+  #     policy:
+  #       allow-topics: ["orders.*", "shipments.*"]
+  #       max-messages: 50
+  #       max-result-bytes: 512KB
+  #
+  # jvms:
+  #   - name: orders-service
+  #     jmx-url: service:jmx:rmi:///jndi/rmi://localhost:9010/jmxrmi
+  #     actuator-base-url: http://localhost:8080/actuator
+  #     policy:
+  #       allow-mbeans: ["java.lang:*", "org.springframework.boot:*"]
+  #       jfr-max-duration: 30s
+  #
+  # apis:
+  #   - name: billing
+  #     openapi-url: http://billing.internal/v3/api-docs
+  #     base-url: http://billing.internal
+  #     policy:
+  #       allow-operations: [getInvoice, listInvoices]
+  #       max-result-bytes: 256KB

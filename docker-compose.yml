@@ -9,7 +9,10 @@ services:
       POSTGRES_USER: bridge
       POSTGRES_PASSWORD: bridge
     ports:
-      - "5432:5432"
+      # Overridable, because 5432 is very often already taken by another project's Postgres:
+      #   BRIDGE_PG_PORT=55432 docker compose up -d postgres
+      # Remember to match it in bridge.yaml.
+      - "${BRIDGE_PG_PORT:-5432}:5432"
     volumes:
       # Seeds the small orders/customers schema the README quickstart queries against.
       - ./docs/sample/seed.sql:/docker-entrypoint-initdb.d/10-seed.sql:ro

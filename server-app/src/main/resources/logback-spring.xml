@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+
+  <!--
+    Everything goes to stderr, with no exception.
+
+    Under the stdio transport, stdout is the JSON-RPC channel between this process and the
+    MCP client. A single log line written there is not merely noise — it is a parse error in
+    the middle of the protocol stream, and the client drops the connection. Logback's default
+    console appender targets System.out, so this file exists specifically to override it.
+
+    This is the most common reason a stdio MCP server "starts fine but the client sees
+    nothing", so do not change the target here without understanding that.
+  -->
+  <appender name="STDERR" class="ch.qos.logback.core.ConsoleAppender">
+    <target>System.err</target>
+    <encoder>
+      <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level %logger{36} - %msg%n</pattern>
+    </encoder>
+  </appender>
+
+  <!--
+    The audit logger is separate so an operator can route it independently — to a file, a
+    collector, or a different retention policy — without also capturing application logs.
+    It still goes to stderr by default for the same reason as everything else.
+  -->
+  <logger name="jvm-mcp-bridge.audit" level="INFO" additivity="false">
+    <appender-ref ref="STDERR"/>
+  </logger>
+
+  <root level="WARN">
+    <appender-ref ref="STDERR"/>
+  </root>
+
+  <logger name="io.github.thompgt.jvmmcp" level="INFO"/>
+
+</configuration>

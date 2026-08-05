@@ -1,0 +1,25 @@
+# Defaults. Operator configuration goes in bridge.yaml, pointed at with
+# --spring.config.additional-location=file:./bridge.yaml
+
+spring:
+  application:
+    name: jvm-mcp-bridge
+  main:
+    # stdout belongs to the JSON-RPC stream under the stdio transport.
+    banner-mode: off
+
+bridge:
+  mode: read-only
+  transport: stdio
+
+logging:
+  pattern:
+    # No colour codes: this stream is read by a log collector or a human tailing a file,
+    # never by a terminal that the MCP client also owns.
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level %logger{36} - %msg%n"
+  level:
+    root: WARN
+    io.github.thompgt.jvmmcp: INFO
+    # The SDK logs each request at DEBUG; useful when a client disagrees about the protocol.
+    io.modelcontextprotocol: WARN
+    com.zaxxer.hikari: WARN

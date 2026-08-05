@@ -31,7 +31,7 @@ and every call is bounded and audited.
 - [x] **1.5 Schema introspection** — `schema.list_tables` / `schema.describe_table` from
       `DatabaseMetaData`, filtered by the same allowlist, plus `jdbc://schema/{table}`
       resources.
-- [ ] **1.6 stdio server wiring** — `server-app` binds `bridge.yaml`, builds the registry,
+- [x] **1.6 stdio server wiring** — `server-app` binds `bridge.yaml`, builds the registry,
       serves over stdio.
 - [ ] **1.7 Guardrail test suite** — the known attacks (stacked statements, writing CTE,
       comment-obfuscated DML, allowlist bypass via join/view, row-cap blowout) each assert a

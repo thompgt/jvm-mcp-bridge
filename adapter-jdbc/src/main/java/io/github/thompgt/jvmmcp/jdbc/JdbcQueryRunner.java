@@ -95,10 +95,14 @@ final class JdbcQueryRunner {
 
     private static void applyStatementBounds(Statement statement, SqlDialect dialect, EffectiveLimits limits)
             throws SQLException {
-        // maxRows tells the driver to stop fetching; ResultSetReader also stops at the cap.
-        // Both, because a driver that ignores maxRows would otherwise stream the whole table.
-        statement.setMaxRows(limits.maxRows());
-        statement.setFetchSize(Math.min(limits.maxRows(), 500));
+        // maxRows + 1, not maxRows. At exactly the cap the driver returns the capped rows and
+        // then reports the end of the result set, so the reader cannot distinguish "there were
+        // exactly this many" from "there were more". That difference matters: a model told a
+        // truncated result is complete will confidently draw a total from a partial answer.
+        // One extra row is enough to detect it, and it is discarded rather than returned.
+        int fetchLimit = limits.maxRows() == Integer.MAX_VALUE ? limits.maxRows() : limits.maxRows() + 1;
+        statement.setMaxRows(fetchLimit);
+        statement.setFetchSize(Math.min(fetchLimit, 500));
 
         long seconds = Math.max(1, limits.timeout().toSeconds());
         // Portable, driver-enforced. On dialects with no server-side timeout it is the only

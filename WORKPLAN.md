@@ -33,7 +33,7 @@ and every call is bounded and audited.
       resources.
 - [x] **1.6 stdio server wiring** — `server-app` binds `bridge.yaml`, builds the registry,
       serves over stdio.
-- [ ] **1.7 Guardrail test suite** — the known attacks (stacked statements, writing CTE,
+- [x] **1.7 Guardrail test suite** — the known attacks (stacked statements, writing CTE,
       comment-obfuscated DML, allowlist bypass via join/view, row-cap blowout) each assert a
       *deny with reason*.
 - [ ] **1.8 Round-trip test** — in-process MCP client drives `tools/list` and a real

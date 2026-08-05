@@ -36,7 +36,7 @@ and every call is bounded and audited.
 - [x] **1.7 Guardrail test suite** — the known attacks (stacked statements, writing CTE,
       comment-obfuscated DML, allowlist bypass via join/view, row-cap blowout) each assert a
       *deny with reason*.
-- [ ] **1.8 Round-trip test** — in-process MCP client drives `tools/list` and a real
+- [x] **1.8 Round-trip test** — in-process MCP client drives `tools/list` and a real
       `sql.query` against Testcontainers Postgres.
 
 Done when: an MCP client registered against this server answers a question that requires

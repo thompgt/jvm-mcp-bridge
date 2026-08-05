@@ -43,11 +43,14 @@ public final class SqlQueryTool implements BridgeTool {
                         policy.profile().maxRows())
                 .build();
 
+        // Every key the tool actually returns has to appear here: structured output is
+        // validated against this schema, and an undeclared field fails the whole call.
         Map<String, Object> output = Schemas.object()
                 .optionalArrayOfStrings("columns", "Column names, in order.")
+                .arrayOfDynamicObjects("rows", "One object per row, keyed by column name.")
+                .optionalInteger("rowCount", "Number of rows returned.", 0, Integer.MAX_VALUE)
                 .optionalBoolean("truncated", "True if a cap stopped the read before the end of the results.")
                 .optionalString("truncationReason", "Which cap stopped it, when truncated.")
-                .optionalInteger("rowCount", "Number of rows returned.", 0, Integer.MAX_VALUE)
                 .build();
 
         return McpSchema.Tool.builder(toolName, input)

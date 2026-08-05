@@ -87,6 +87,24 @@ public final class Schemas {
             return this;
         }
 
+        /**
+         * An array of objects whose keys are not known in advance — query result rows, whose
+         * columns depend on the SELECT.
+         *
+         * <p>Needed because a tool's structured output is validated against its declared
+         * output schema. Omitting a field that the tool actually returns makes every call
+         * fail validation, which surfaces to the model as an unexplained tool error.
+         */
+        public ObjectSchema arrayOfDynamicObjects(String name, String description) {
+            properties.put(
+                    name,
+                    Map.of(
+                            "type", "array",
+                            "description", description,
+                            "items", Map.of("type", "object")));
+            return this;
+        }
+
         public Map<String, Object> build() {
             Map<String, Object> schema = new LinkedHashMap<>();
             schema.put("type", "object");

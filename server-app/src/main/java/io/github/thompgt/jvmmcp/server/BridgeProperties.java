@@ -70,6 +70,16 @@ public class BridgeProperties {
          */
         private Duration keepAliveInterval = Duration.ofSeconds(30);
 
+        private Auth auth = new Auth();
+
+        public Auth getAuth() {
+            return auth;
+        }
+
+        public void setAuth(Auth auth) {
+            this.auth = auth;
+        }
+
         public String getEndpoint() {
             return endpoint;
         }
@@ -100,6 +110,101 @@ public class BridgeProperties {
 
         public void setKeepAliveInterval(Duration keepAliveInterval) {
             this.keepAliveInterval = keepAliveInterval;
+        }
+    }
+
+    /** How callers on the HTTP transport prove who they are. */
+    public static class Auth {
+
+        public enum Mode {
+            /**
+             * No authentication. Every caller is anonymous and gets the default profile.
+             * Legitimate only when something in front of the bridge already authenticates, and
+             * refused unless {@code bridge.http.auth.i-understand-this-is-unauthenticated} is
+             * also set — an MCP endpoint open to the network is an open database connection.
+             */
+            NONE,
+            /** Static keys mapped to principals. For internal networks. */
+            API_KEY,
+            /** JWT bearer tokens validated against an issuer. Phase 2.3. */
+            OAUTH2
+        }
+
+        private Mode mode = Mode.API_KEY;
+
+        /** Required to actually run with {@link Mode#NONE}. Named to be hard to set by accident. */
+        private boolean iUnderstandThisIsUnauthenticated;
+
+        /** Header carrying the credential. Bearer tokens use {@code Authorization}. */
+        private String header = "Authorization";
+
+        private List<ApiKey> keys = new ArrayList<>();
+
+        public Mode getMode() {
+            return mode;
+        }
+
+        public void setMode(Mode mode) {
+            this.mode = mode;
+        }
+
+        public boolean isIUnderstandThisIsUnauthenticated() {
+            return iUnderstandThisIsUnauthenticated;
+        }
+
+        public void setIUnderstandThisIsUnauthenticated(boolean value) {
+            this.iUnderstandThisIsUnauthenticated = value;
+        }
+
+        public String getHeader() {
+            return header;
+        }
+
+        public void setHeader(String header) {
+            this.header = header;
+        }
+
+        public List<ApiKey> getKeys() {
+            return keys;
+        }
+
+        public void setKeys(List<ApiKey> keys) {
+            this.keys = keys;
+        }
+    }
+
+    public static class ApiKey {
+        /** The secret. Use a placeholder like {@code ${ANALYST_KEY}} — do not commit a literal. */
+        private String key;
+
+        /** Identity written to the audit log for calls made with this key. */
+        private String principal;
+
+        /** Policy profile to apply; omitted means the backend default. */
+        private String profile;
+
+        public String getKey() {
+            return key;
+        }
+
+        public void setKey(String key) {
+            this.key = key;
+        }
+
+        public String getPrincipal() {
+            return principal;
+        }
+
+        public void setPrincipal(String principal) {
+            this.principal = principal;
+        }
+
+        public String getProfile() {
+            return profile;
+        }
+
+        public void setProfile(String profile) {
+            this.profile = profile;
         }
     }
 

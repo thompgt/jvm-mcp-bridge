@@ -7,6 +7,7 @@ import io.modelcontextprotocol.client.McpSyncClient;
 import io.modelcontextprotocol.client.transport.HttpClientStreamableHttpTransport;
 import io.modelcontextprotocol.json.McpJsonDefaults;
 import io.modelcontextprotocol.spec.McpSchema;
+import java.net.http.HttpRequest;
 import java.time.Duration;
 import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
@@ -32,8 +33,17 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  */
 @Tag("integration")
 @Testcontainers
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = "bridge.transport=http")
+@SpringBootTest(
+        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+        properties = {
+            "bridge.transport=http",
+            "bridge.http.auth.keys[0].key=" + McpHttpRoundTripTest.KEY,
+            "bridge.http.auth.keys[0].principal=round-trip-test"
+        })
 class McpHttpRoundTripTest {
+
+    /** Long enough to pass the startup length check; not a secret, it only exists in this test. */
+    static final String KEY = "round-trip-test-key-0123456789";
 
     @Container
     private static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:17-alpine")
@@ -70,6 +80,7 @@ class McpHttpRoundTripTest {
                         "http://localhost:" + port)
                 .endpoint("/mcp")
                 .jsonMapper(McpJsonDefaults.getMapper())
+                .requestBuilder(HttpRequest.newBuilder().header("Authorization", "Bearer " + KEY))
                 .build();
         client = McpClient.sync(transport)
                 .requestTimeout(Duration.ofSeconds(30))

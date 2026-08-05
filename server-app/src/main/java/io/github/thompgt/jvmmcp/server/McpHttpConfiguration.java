@@ -1,19 +1,25 @@
 package io.github.thompgt.jvmmcp.server;
 
 import io.github.thompgt.jvmmcp.core.BridgeServerFactory;
+import io.github.thompgt.jvmmcp.core.CallContext;
 import io.github.thompgt.jvmmcp.core.ToolRegistry;
+import io.modelcontextprotocol.common.McpTransportContext;
 import io.modelcontextprotocol.json.McpJsonDefaults;
 import io.modelcontextprotocol.server.McpSyncServer;
 import io.modelcontextprotocol.server.transport.DefaultServerTransportSecurityValidator;
 import io.modelcontextprotocol.server.transport.HttpServletStreamableServerTransportProvider;
 import io.modelcontextprotocol.server.transport.ServerTransportSecurityValidator;
+import jakarta.servlet.http.HttpServletRequest;
 import java.time.Duration;
+import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.boot.web.servlet.ServletRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.Ordered;
 
 /**
  * Serves MCP over Streamable HTTP.
@@ -29,6 +35,38 @@ public class McpHttpConfiguration {
 
     private static final Logger log = LoggerFactory.getLogger(McpHttpConfiguration.class);
 
+    /**
+     * Chooses how callers identify themselves.
+     *
+     * <p>{@code none} is available but has to be asked for twice, because an MCP endpoint with
+     * no authentication is a database connection listening on a port. The second flag exists so
+     * that turning it on is a deliberate sentence in a config file rather than a default nobody
+     * revisited.
+     */
+    @Bean
+    public BridgeAuthenticator bridgeAuthenticator(BridgeProperties properties) {
+        BridgeProperties.Auth auth = properties.getHttp().getAuth();
+        return switch (auth.getMode()) {
+            case API_KEY -> new ApiKeyAuthenticator(auth);
+            case OAUTH2 -> throw new IllegalStateException(
+                    "bridge.http.auth.mode=oauth2 is not implemented yet (workplan phase 2.3);"
+                            + " use api-key until it is");
+            case NONE -> {
+                if (!auth.isIUnderstandThisIsUnauthenticated()) {
+                    throw new IllegalStateException(
+                            "bridge.http.auth.mode=none serves every caller with no credential at"
+                                + " all. If that is genuinely what you want — the bridge is behind"
+                                + " a gateway that already authenticates — also set"
+                                + " bridge.http.auth.i-understand-this-is-unauthenticated=true.");
+                }
+                log.warn(
+                        "AUTHENTICATION IS DISABLED: every request to {} is served as 'anonymous'",
+                        properties.getHttp().getEndpoint());
+                yield BridgeAuthenticator.anonymous();
+            }
+        };
+    }
+
     @Bean
     public HttpServletStreamableServerTransportProvider mcpTransportProvider(BridgeProperties properties) {
         BridgeProperties.Http http = properties.getHttp();
@@ -38,7 +76,32 @@ public class McpHttpConfiguration {
                 .mcpEndpoint(http.getEndpoint())
                 .keepAliveInterval(http.getKeepAliveInterval())
                 .securityValidator(securityValidator(http))
+                // Copies the principal the filter already authenticated into the transport
+                // context, which is where ToolRegistry reads it from when it binds CallContext.
+                // This does not authenticate anything — by the time it runs, the filter has.
+                .contextExtractor((HttpServletRequest request) -> McpTransportContext.create(
+                        principalContext(request)))
                 .build();
+    }
+
+    private static Map<String, Object> principalContext(HttpServletRequest request) {
+        Object principal = request.getAttribute(McpAuthenticationFilter.PRINCIPAL_ATTRIBUTE);
+        return principal == null ? Map.of() : Map.of(CallContext.TRANSPORT_KEY, principal);
+    }
+
+    /**
+     * Ordered ahead of everything else: no other filter should see a request from a caller the
+     * bridge has not identified.
+     */
+    @Bean
+    public FilterRegistrationBean<McpAuthenticationFilter> mcpAuthenticationFilter(
+            BridgeAuthenticator authenticator, BridgeProperties properties) {
+        FilterRegistrationBean<McpAuthenticationFilter> registration =
+                new FilterRegistrationBean<>(new McpAuthenticationFilter(authenticator));
+        registration.addUrlPatterns(properties.getHttp().getEndpoint());
+        registration.setOrder(Ordered.HIGHEST_PRECEDENCE);
+        registration.setName("mcpAuthentication");
+        return registration;
     }
 
     /**

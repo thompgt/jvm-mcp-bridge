@@ -1,6 +1,7 @@
 package io.github.thompgt.jvmmcp.core;
 
 import io.modelcontextprotocol.server.McpServerFeatures;
+import io.modelcontextprotocol.server.McpSyncServerExchange;
 import io.modelcontextprotocol.spec.McpSchema;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -79,10 +80,27 @@ public final class ToolRegistry {
             specs.add(
                     McpServerFeatures.SyncToolSpecification.builder()
                             .tool(tool.descriptor())
-                            .callHandler((exchange, request) -> invoke(tool, request))
+                            .callHandler((exchange, request) ->
+                                    CallContext.with(principalOf(exchange), () -> invoke(tool, request)))
                             .build());
         }
         return List.copyOf(specs);
+    }
+
+    /**
+     * Reads the authenticated principal the transport attached to this request.
+     *
+     * <p>Falls back to {@link Principal#LOCAL} when the transport published nothing, which is
+     * the stdio case. On HTTP the transport cannot reach here unauthenticated — the filter in
+     * front of the endpoint rejects those before a session exists — so an absent principal
+     * there would be a bug, not an anonymous user.
+     */
+    private static Principal principalOf(McpSyncServerExchange exchange) {
+        if (exchange == null) {
+            return Principal.LOCAL;
+        }
+        Object attached = exchange.transportContext().get(CallContext.TRANSPORT_KEY);
+        return attached instanceof Principal principal ? principal : Principal.LOCAL;
     }
 
     private McpSchema.CallToolResult invoke(BridgeTool tool, McpSchema.CallToolRequest request) {

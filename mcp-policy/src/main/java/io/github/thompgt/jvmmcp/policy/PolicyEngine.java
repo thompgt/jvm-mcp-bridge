@@ -1,9 +1,12 @@
 package io.github.thompgt.jvmmcp.policy;
 
+import io.github.thompgt.jvmmcp.core.CallContext;
+import io.github.thompgt.jvmmcp.core.Principal;
 import io.github.thompgt.jvmmcp.core.ToolOutcome;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.List;
+import java.util.function.Supplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -25,13 +28,19 @@ public final class PolicyEngine {
     private final PolicyProfile profile;
     private final AuditSink audit;
     private final Clock clock;
-    private final String principal;
+    private final Supplier<Principal> principal;
 
     public PolicyEngine(PolicyProfile profile, AuditSink audit) {
-        this(profile, audit, Clock.systemUTC(), "local");
+        this(profile, audit, Clock.systemUTC(), CallContext::principal);
     }
 
-    public PolicyEngine(PolicyProfile profile, AuditSink audit, Clock clock, String principal) {
+    /**
+     * @param principal resolved per call rather than fixed at construction. One engine serves
+     *     every caller on a backend, so binding an identity here would attribute every HTTP
+     *     request to whoever happened to start the server.
+     */
+    public PolicyEngine(
+            PolicyProfile profile, AuditSink audit, Clock clock, Supplier<Principal> principal) {
         this.profile = profile;
         this.audit = audit;
         this.clock = clock;
@@ -141,7 +150,7 @@ public final class PolicyEngine {
         audit.record(
                 new AuditRecord(
                         clock.instant(),
-                        principal,
+                        principal.get().name(),
                         profile.backendName(),
                         request.tool(),
                         request.resources(),

@@ -102,3 +102,11 @@ WORKPLAN.md → commit (one subphase per commit) → push.
 
 Commit style: lowercase imperative, conventional prefix with scope, subphase in parens —
 `feat(adapter-jdbc): reject non-SELECT statements at the AST (1.3)`.
+
+## SDK gotchas found the hard way
+
+- `McpSchema.Tool.builder()` (no-arg) and `new McpSchema.TextContent(String)` are both
+  **deprecated** and will fail the build under `-Werror`. Use
+  `McpSchema.Tool.builder(name, inputSchemaMap)` and `McpSchema.TextContent.builder(text).build()`.
+- The JSON mapper is obtained from `McpJsonDefaults.getMapper()`, not from a static on
+  `McpJsonMapper` (which is an interface with no factory method).

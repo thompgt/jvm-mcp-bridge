@@ -2,7 +2,6 @@ package io.github.thompgt.jvmmcp.server;
 
 import io.github.thompgt.jvmmcp.core.BridgeServerFactory;
 import io.github.thompgt.jvmmcp.core.ToolRegistry;
-import io.github.thompgt.jvmmcp.policy.AuditSink;
 import io.modelcontextprotocol.server.McpSyncServer;
 import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
@@ -44,25 +43,20 @@ public class BridgeApplication {
         }
 
         var context = application.run(args);
-        BridgeProperties properties = context.getBean(BridgeProperties.class);
+        requireTransportAgreement(transport, context.getBean(BridgeProperties.class).getTransport());
 
-        try (BridgeAssembler assembler = new BridgeAssembler()) {
-            AuditSink audit = assembler.auditSink(properties);
-            ToolRegistry registry = assembler.assemble(properties, audit);
-
-            if (properties.getTransport() == BridgeProperties.Transport.HTTP) {
-                // Phase 2. Refusing beats starting a server that answers nothing on /mcp.
-                throw new IllegalStateException(
-                        "the HTTP transport is not implemented yet (workplan phase 2);"
-                                + " run with --bridge.transport=stdio");
-            }
-
-            McpSyncServer server =
-                    BridgeServerFactory.stdio(registry, version(), Duration.ofSeconds(30));
-            log.info("jvm-mcp-bridge {} serving {} tool(s) over stdio", version(), registry.toolCount());
-
-            awaitShutdown(server);
+        if (transport == BridgeProperties.Transport.HTTP) {
+            // The servlet container is the thing keeping the JVM alive, and McpHttpConfiguration
+            // has already built and registered the server. Nothing left for main to do.
+            return;
         }
+
+        // stdio: the transport reads on its own threads and there is no container, so main
+        // has to block or the process would exit during the client's initialise.
+        ToolRegistry registry = context.getBean(ToolRegistry.class);
+        McpSyncServer server = BridgeServerFactory.stdio(registry, version(), Duration.ofSeconds(30));
+        log.info("jvm-mcp-bridge {} serving {} tool(s) over stdio", version(), registry.toolCount());
+        awaitShutdown(server);
     }
 
     /**
@@ -77,6 +71,27 @@ public class BridgeApplication {
             }
         }
         return BridgeProperties.Transport.STDIO;
+    }
+
+    /**
+     * Guards the one gap in reading the transport early: {@link #transportFrom} sees only the
+     * command line, so {@code transport: http} set in a config file would leave the process
+     * with no servlet container while the HTTP beans were still created. Rather than start a
+     * server that answers nothing, say exactly what to do about it.
+     */
+    private static void requireTransportAgreement(
+            BridgeProperties.Transport commandLine, BridgeProperties.Transport bound) {
+        if (commandLine != bound) {
+            throw new IllegalStateException(
+                    "transport is '"
+                            + bound.name().toLowerCase(java.util.Locale.ROOT)
+                            + "' in configuration but the process started for '"
+                            + commandLine.name().toLowerCase(java.util.Locale.ROOT)
+                            + "'. The transport decides whether a web server is created at all,"
+                            + " which is settled before configuration is read — pass it on the"
+                            + " command line instead: --bridge.transport="
+                            + bound.name().toLowerCase(java.util.Locale.ROOT));
+        }
     }
 
     /**

@@ -24,6 +24,8 @@ public class BridgeProperties {
 
     private Audit audit = new Audit();
 
+    private Http http = new Http();
+
     private List<Datasource> datasources = new ArrayList<>();
 
     public enum Transport {
@@ -43,6 +45,61 @@ public class BridgeProperties {
 
         public void setFile(String file) {
             this.file = file;
+        }
+    }
+
+    /** Settings that apply only to {@code transport: http}. */
+    public static class Http {
+        /** Path the MCP endpoint is served on. */
+        private String endpoint = "/mcp";
+
+        /**
+         * Origins permitted to reach the endpoint from a browser. Empty means none — a
+         * deliberate default, because an MCP server bound to localhost with no Origin check is
+         * reachable by any page the user visits (DNS rebinding). Set this only if a browser
+         * client genuinely needs it.
+         */
+        private List<String> allowedOrigins = new ArrayList<>();
+
+        /** Host headers permitted, for the same reason. Empty means no Host restriction. */
+        private List<String> allowedHosts = new ArrayList<>();
+
+        /**
+         * How often to send a keep-alive on an open SSE stream. Proxies and load balancers cut
+         * idle connections; a long-running tool call looks idle to them.
+         */
+        private Duration keepAliveInterval = Duration.ofSeconds(30);
+
+        public String getEndpoint() {
+            return endpoint;
+        }
+
+        public void setEndpoint(String endpoint) {
+            this.endpoint = endpoint;
+        }
+
+        public List<String> getAllowedOrigins() {
+            return allowedOrigins;
+        }
+
+        public void setAllowedOrigins(List<String> allowedOrigins) {
+            this.allowedOrigins = allowedOrigins;
+        }
+
+        public List<String> getAllowedHosts() {
+            return allowedHosts;
+        }
+
+        public void setAllowedHosts(List<String> allowedHosts) {
+            this.allowedHosts = allowedHosts;
+        }
+
+        public Duration getKeepAliveInterval() {
+            return keepAliveInterval;
+        }
+
+        public void setKeepAliveInterval(Duration keepAliveInterval) {
+            this.keepAliveInterval = keepAliveInterval;
         }
     }
 
@@ -173,6 +230,14 @@ public class BridgeProperties {
 
     public void setAudit(Audit audit) {
         this.audit = audit;
+    }
+
+    public Http getHttp() {
+        return http;
+    }
+
+    public void setHttp(Http http) {
+        this.http = http;
     }
 
     public List<Datasource> getDatasources() {

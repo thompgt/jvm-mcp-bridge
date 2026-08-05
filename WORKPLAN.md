@@ -44,7 +44,7 @@ both a schema lookup and a query, and the audit log shows both calls with their 
 
 ## Phase 2 — Streamable HTTP + auth
 
-- [ ] **2.1 Streamable HTTP transport** — `HttpServletStreamableServerTransportProvider` on
+- [x] **2.1 Streamable HTTP transport** — `HttpServletStreamableServerTransportProvider` on
       `/mcp`, registered as a `ServletRegistrationBean`; same registry as stdio.
 - [ ] **2.2 API-key auth** — static keys mapped to policy profiles, for internal networks.
 - [ ] **2.3 OAuth2 resource server** — JWT validation with RFC 8707 resource indicators, per

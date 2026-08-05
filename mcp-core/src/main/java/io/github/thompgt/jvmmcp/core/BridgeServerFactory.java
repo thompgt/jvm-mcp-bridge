@@ -5,6 +5,7 @@ import io.modelcontextprotocol.server.McpServer;
 import io.modelcontextprotocol.server.McpSyncServer;
 import io.modelcontextprotocol.server.transport.StdioServerTransportProvider;
 import io.modelcontextprotocol.spec.McpSchema;
+import io.modelcontextprotocol.spec.McpStreamableServerTransportProvider;
 import java.time.Duration;
 
 /**
@@ -26,6 +27,22 @@ public final class BridgeServerFactory {
     public static McpSyncServer stdio(ToolRegistry registry, String version, Duration requestTimeout) {
         StdioServerTransportProvider transport =
                 new StdioServerTransportProvider(McpJsonDefaults.getMapper());
+        return build(McpServer.sync(transport), registry, version, requestTimeout);
+    }
+
+    /**
+     * Serves over Streamable HTTP — the mode for a shared deployment several clients connect to.
+     *
+     * <p>The transport provider is built by the caller rather than here, because constructing
+     * it needs the servlet API and {@code mcp-core} deliberately does not depend on a servlet
+     * container. This method takes the SDK's transport <em>interface</em>, so the module stays
+     * free of {@code jakarta.servlet} while the assembly still lives in one place.
+     */
+    public static McpSyncServer streamableHttp(
+            McpStreamableServerTransportProvider transport,
+            ToolRegistry registry,
+            String version,
+            Duration requestTimeout) {
         return build(McpServer.sync(transport), registry, version, requestTimeout);
     }
 

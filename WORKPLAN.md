@@ -26,9 +26,9 @@ and every call is bounded and audited.
 - [x] **1.3 SQL validation at the AST** — JSqlParser; reject anything that is not a single
       `SELECT`/`WITH`; resolve every referenced table and match the allowlist on resolved
       names, never on the raw string.
-- [ ] **1.4 Read-only execution** — `setReadOnly(true)`, dialect statement timeout,
+- [x] **1.4 Read-only execution** — `setReadOnly(true)`, dialect statement timeout,
       `maxRows`, byte cap, cursor-bounded fetch, column redaction by pattern.
-- [ ] **1.5 Schema introspection** — `schema.list_tables` / `schema.describe_table` from
+- [x] **1.5 Schema introspection** — `schema.list_tables` / `schema.describe_table` from
       `DatabaseMetaData`, filtered by the same allowlist, plus `jdbc://schema/{table}`
       resources.
 - [ ] **1.6 stdio server wiring** — `server-app` binds `bridge.yaml`, builds the registry,

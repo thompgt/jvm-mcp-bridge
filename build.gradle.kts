@@ -54,6 +54,7 @@ subprojects {
 
         add("testImplementation", platform(libs.findLibrary("junit-bom").get()))
         add("testImplementation", libs.findLibrary("junit-jupiter").get())
+        add("testImplementation", libs.findLibrary("junit-jupiter-params").get())
         add("testImplementation", libs.findLibrary("assertj-core").get())
         add("testRuntimeOnly", libs.findLibrary("junit-platform-launcher").get())
     }

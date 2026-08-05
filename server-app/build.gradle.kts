@@ -36,6 +36,7 @@ dependencies {
     implementation(libs.spring.boot.starter)
     implementation(libs.spring.boot.starter.web)
     implementation(libs.spring.boot.starter.actuator)
+    implementation(libs.spring.security.oauth2.jose)
     implementation(libs.postgresql)
 
     testImplementation(libs.spring.boot.starter.test)

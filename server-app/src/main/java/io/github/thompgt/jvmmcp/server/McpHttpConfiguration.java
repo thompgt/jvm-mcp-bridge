@@ -48,9 +48,7 @@ public class McpHttpConfiguration {
         BridgeProperties.Auth auth = properties.getHttp().getAuth();
         return switch (auth.getMode()) {
             case API_KEY -> new ApiKeyAuthenticator(auth);
-            case OAUTH2 -> throw new IllegalStateException(
-                    "bridge.http.auth.mode=oauth2 is not implemented yet (workplan phase 2.3);"
-                            + " use api-key until it is");
+            case OAUTH2 -> new JwtAuthenticator(auth);
             case NONE -> {
                 if (!auth.isIUnderstandThisIsUnauthenticated()) {
                     throw new IllegalStateException(

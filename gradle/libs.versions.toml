@@ -41,8 +41,11 @@ swagger-parser = { module = "io.swagger.parser.v3:swagger-parser", version.ref =
 spring-boot-starter = { module = "org.springframework.boot:spring-boot-starter" }
 spring-boot-starter-web = { module = "org.springframework.boot:spring-boot-starter-web" }
 spring-boot-starter-actuator = { module = "org.springframework.boot:spring-boot-starter-actuator" }
-spring-boot-starter-oauth2-resource-server = { module = "org.springframework.boot:spring-boot-starter-oauth2-resource-server" }
-spring-boot-starter-security = { module = "org.springframework.boot:spring-boot-starter-security" }
+# JOSE only, not the resource-server starter: the starter drags in spring-security-config,
+# whose auto-configuration installs a filter chain over the whole application. This bridge
+# authenticates in exactly one filter, and two things deciding access is how they disagree.
+# NimbusJwtDecoder and the validators are all that is actually needed.
+spring-security-oauth2-jose = { module = "org.springframework.security:spring-security-oauth2-jose" }
 spring-boot-starter-test = { module = "org.springframework.boot:spring-boot-starter-test" }
 
 # --- testing ---

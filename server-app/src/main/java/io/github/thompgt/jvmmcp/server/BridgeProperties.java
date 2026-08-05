@@ -140,6 +140,16 @@ public class BridgeProperties {
 
         private List<ApiKey> keys = new ArrayList<>();
 
+        private OAuth2 oauth2 = new OAuth2();
+
+        public OAuth2 getOauth2() {
+            return oauth2;
+        }
+
+        public void setOauth2(OAuth2 oauth2) {
+            this.oauth2 = oauth2;
+        }
+
         public Mode getMode() {
             return mode;
         }
@@ -170,6 +180,69 @@ public class BridgeProperties {
 
         public void setKeys(List<ApiKey> keys) {
             this.keys = keys;
+        }
+    }
+
+    /** JWT bearer validation for deployments that already have an identity provider. */
+    public static class OAuth2 {
+        /** Issuer to fetch signing keys and metadata from. Its {@code iss} must match exactly. */
+        private String issuerUri;
+
+        /**
+         * The resource indicator (RFC 8707) identifying <em>this</em> bridge, matched against the
+         * token's {@code aud}. Required, and the single most important setting here: without it
+         * a token minted for any other service the same issuer serves would be accepted, which
+         * is the confused-deputy problem the 2025-06-18 security revision added it to close.
+         */
+        private String audience;
+
+        /** Claim to take the audited identity from. */
+        private String principalClaim = "sub";
+
+        /** Optional claim naming the policy profile to apply. Absent means the backend default. */
+        private String profileClaim;
+
+        /** Optional scope the token must carry, checked against {@code scope} or {@code scp}. */
+        private String requiredScope;
+
+        public String getIssuerUri() {
+            return issuerUri;
+        }
+
+        public void setIssuerUri(String issuerUri) {
+            this.issuerUri = issuerUri;
+        }
+
+        public String getAudience() {
+            return audience;
+        }
+
+        public void setAudience(String audience) {
+            this.audience = audience;
+        }
+
+        public String getPrincipalClaim() {
+            return principalClaim;
+        }
+
+        public void setPrincipalClaim(String principalClaim) {
+            this.principalClaim = principalClaim;
+        }
+
+        public String getProfileClaim() {
+            return profileClaim;
+        }
+
+        public void setProfileClaim(String profileClaim) {
+            this.profileClaim = profileClaim;
+        }
+
+        public String getRequiredScope() {
+            return requiredScope;
+        }
+
+        public void setRequiredScope(String requiredScope) {
+            this.requiredScope = requiredScope;
         }
     }
 

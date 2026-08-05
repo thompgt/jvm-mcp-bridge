@@ -68,6 +68,7 @@ git clone https://github.com/thompgt/jvm-mcp-bridge.git
 cd jvm-mcp-bridge
 
 docker compose up -d postgres          # sample database on :5432
+                                       # port taken? BRIDGE_PG_PORT=55432 docker compose up -d postgres
 cp bridge.example.yaml bridge.yaml     # gitignored; edit to point at your system
 ./gradlew :server-app:bootJar
 ```
@@ -76,7 +77,7 @@ Register it with Claude Code:
 
 ```bash
 claude mcp add jvm-bridge -- java -jar "$PWD/server-app/build/libs/jvm-mcp-bridge.jar" \
-  --bridge.config=$PWD/bridge.yaml --bridge.transport=stdio
+  --spring.config.additional-location=file:$PWD/bridge.yaml --bridge.transport=stdio
 ```
 
 Or in `claude_desktop_config.json`:
@@ -88,7 +89,7 @@ Or in `claude_desktop_config.json`:
       "command": "java",
       "args": [
         "-jar", "/abs/path/server-app/build/libs/jvm-mcp-bridge.jar",
-        "--bridge.config=/abs/path/bridge.yaml",
+        "--spring.config.additional-location=file:/abs/path/bridge.yaml",
         "--bridge.transport=stdio"
       ]
     }
@@ -133,12 +134,26 @@ touching the backend. It is the honest way to audit the guardrails before granti
 Integration tests are `@Tag("integration")` and excluded by default so a clone builds with
 no Docker daemon running. CI runs them as a separate job gated on the fast one.
 
+## Skills
+
+What this repository exercises, and where to look if you want to read the code rather than
+take the claim:
+
+| Skill | Applied here | Read |
+|---|---|---|
+| **Java 21** | Records as the domain vocabulary (`Decision`, `EffectiveLimits`, `ToolOutcome`), sealed intent through package-private constructors, pattern matching in the SQL visitor, text blocks in config fixtures. Compiled `--release 21` under `-Xlint:all -Werror`. | `mcp-policy/` |
+| **MCP protocol** | The SDK used directly, not through a framework starter: tool descriptors with declared **output schemas** and structured content, tool annotations (`readOnlyHint`, `destructiveHint`) so clients can decide what to auto-approve, server `instructions` delivered at initialize, and failures returned as `isError` results the model can recover from rather than protocol errors it cannot. | `mcp-core/`, [ADR 001](docs/adr/001-mcp-sdk-direct-not-spring-ai.md) |
+| **Guardrail engineering** | Defence in depth across four independent layers, an API shaped so a backend connection is unreachable outside a policy decision, deny-by-default with model-actionable reasons, and an audit record per call. Adversarial tests cover stacked statements, data-modifying CTEs, `SELECT INTO`, comment-obfuscated writes and allowlist evasion by join. | `mcp-policy/`, `SqlGuard.java`, [ADR 002](docs/adr/002-policy-engine-between-adapter-and-backend.md) |
+| **Spring Boot 3.5** | Confined to one module on purpose. Type-safe `@ConfigurationProperties` binding for the whole `bridge.yaml` tree, a transport chosen before the context starts (stdio runs `WebApplicationType.NONE` with the banner off), Actuator health, and a logging config where **every appender targets stderr** — one stdout line is a protocol parse error. | `server-app/` |
+| **JDBC & connection pooling** | HikariCP with a deliberately small pool, read-only transactions layered with dialect-aware `SET LOCAL statement_timeout`, `DatabaseMetaData` introspection surfaced as MCP resources, and a `maxRows + 1` fetch so truncation is *detectable* rather than silently indistinguishable from a complete result. | `adapter-jdbc/` |
+| **Gradle multi-module & testing** | Kotlin DSL, version catalog, `java-library` with `api`/`implementation` policed so `mcp-core` cannot leak a driver onto a consumer's classpath, and a resolved Jackson 2/3 coexistence conflict. Tests run in tiers: fast JVM units by default, Testcontainers behind `@Tag("integration")`, and a round-trip suite that launches the packaged jar as a subprocess and speaks JSON-RPC to it over pipes. | `build.gradle.kts`, `McpRoundTripTest.java` |
+
 ## Status
 
 | Phase | State |
 |---|---|
-| 0 — Scaffolding | ⬜ in progress |
-| 1 — JDBC vertical slice | ⬜ |
+| 0 — Scaffolding | ✅ |
+| 1 — JDBC vertical slice | ✅ |
 | 2 — Streamable HTTP + auth | ⬜ |
 | 3 — Kafka adapter | ⬜ |
 | 4 — JVM runtime adapter | ⬜ |

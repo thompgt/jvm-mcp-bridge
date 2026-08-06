@@ -62,10 +62,11 @@ database, and an unauthenticated request to `/mcp` is refused.
 
 ## Phase 3 — Kafka adapter
 
-- [ ] **3.1 AdminClient lifecycle** — connection config, timeouts, clean shutdown.
-- [ ] **3.2 Topic and group inspection** — `kafka.list_topics`, `kafka.describe_topic`,
-      `kafka.describe_group`.
-- [ ] **3.3 Consumer lag** — `kafka.consumer_lag` with per-partition breakdown and the
+- [x] **3.1 AdminClient lifecycle** — connection config, timeouts, clean shutdown.
+- [x] **3.2 Topic and group inspection** — `kafka.list_topics`, `kafka.describe_topic`,
+      `kafka.describe_group`. A group is only visible if it consumes something the caller
+      may read, and an invisible group is refused with the same words as an absent one.
+- [x] **3.3 Consumer lag** — `kafka.consumer_lag` with per-partition breakdown and the
       end-offset snapshot time, so the model doesn't misread a stale number as live.
 - [ ] **3.4 Bounded peek** — `kafka.peek` reads from an explicit offset with a message and
       byte cap, using a unique group id and **never committing offsets**.

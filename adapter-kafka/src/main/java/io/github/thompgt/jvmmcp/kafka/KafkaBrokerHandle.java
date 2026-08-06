@@ -104,8 +104,11 @@ public final class KafkaBrokerHandle implements AutoCloseable {
      * {@code kafka-consumer-groups --list} when someone finds one.
      */
     static String peekGroupId(String broker, String topic, long nonce) {
-        return "jvm-mcp-bridge-peek-" + broker + "-" + topic + "-" + nonce;
+        return PEEK_GROUP_PREFIX + broker + "-" + topic + "-" + nonce;
     }
+
+    /** Also how {@code kafka.list_groups} recognises and hides this bridge's own leftovers. */
+    static final String PEEK_GROUP_PREFIX = "jvm-mcp-bridge-peek-";
 
     /**
      * Waits for an admin future within the request timeout.

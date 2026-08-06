@@ -5,5 +5,8 @@ dependencies {
     testImplementation(libs.logback.classic)
     testImplementation(platform(libs.testcontainers.bom))
     testImplementation(libs.testcontainers.junit)
-    testImplementation(libs.testcontainers.kafka)
+    // Redpanda, matching docker-compose.yml: one binary, no KRaft bootstrap dance, and the
+    // same Kafka protocol. The apache/kafka image needs cluster configuration this test has
+    // no reason to own.
+    testImplementation(libs.testcontainers.redpanda)
 }

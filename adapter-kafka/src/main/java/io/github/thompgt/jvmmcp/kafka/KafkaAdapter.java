@@ -38,6 +38,7 @@ public final class KafkaAdapter implements ProbeableBackend, AutoCloseable {
     public List<BridgeTool> tools() {
         List<BridgeTool> tools = new ArrayList<>();
         tools.addAll(TopicTools.create(handle, policy));
+        tools.addAll(GroupTools.create(handle, policy));
         return List.copyOf(tools);
     }
 

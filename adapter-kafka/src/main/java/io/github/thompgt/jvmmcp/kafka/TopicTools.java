@@ -10,10 +10,8 @@ import io.modelcontextprotocol.spec.McpSchema;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-import java.util.TreeSet;
 import org.apache.kafka.clients.admin.Config;
 import org.apache.kafka.clients.admin.ConfigEntry;
 import org.apache.kafka.clients.admin.ListTopicsOptions;
@@ -279,16 +277,5 @@ final class TopicTools {
         public String backend() {
             return "kafka:" + handle.name();
         }
-    }
-
-    /** Sorted set of the topics a caller may read, for denial messages and filtering. */
-    static Set<String> visibleTopics(PolicyProfile profile, Set<String> candidates) {
-        Set<String> visible = new TreeSet<>();
-        for (String candidate : candidates) {
-            if (profile.isReadable(candidate)) {
-                visible.add(candidate.toLowerCase(Locale.ROOT));
-            }
-        }
-        return visible;
     }
 }

@@ -58,6 +58,7 @@ testcontainers-bom = { module = "org.testcontainers:testcontainers-bom", version
 testcontainers-junit = { module = "org.testcontainers:junit-jupiter" }
 testcontainers-postgresql = { module = "org.testcontainers:postgresql" }
 testcontainers-kafka = { module = "org.testcontainers:kafka" }
+testcontainers-redpanda = { module = "org.testcontainers:redpanda" }
 
 [plugins]
 spring-boot = { id = "org.springframework.boot", version.ref = "springBoot" }

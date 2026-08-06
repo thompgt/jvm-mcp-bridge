@@ -56,6 +56,17 @@ public final class Schemas {
             return this;
         }
 
+        /**
+         * An integer with no declared bounds, for a value that is genuinely unbounded — a Kafka
+         * offset, a lag, a byte count. Declaring {@code Integer.MAX_VALUE} as the maximum on one
+         * of these is not a harmless approximation: structured output is validated against this
+         * schema, so the first topic to pass two billion messages would fail every call.
+         */
+        public ObjectSchema optionalInteger(String name, String description) {
+            properties.put(name, Map.of("type", "integer", "description", description));
+            return this;
+        }
+
         public ObjectSchema optionalBoolean(String name, String description) {
             properties.put(name, Map.of("type", "boolean", "description", description));
             return this;

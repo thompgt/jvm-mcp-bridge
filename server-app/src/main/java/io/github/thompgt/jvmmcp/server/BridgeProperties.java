@@ -30,6 +30,8 @@ public class BridgeProperties {
 
     private List<Datasource> datasources = new ArrayList<>();
 
+    private List<Broker> brokers = new ArrayList<>();
+
     public enum Transport {
         /** Launched as a subprocess by an MCP client. */
         STDIO,
@@ -424,6 +426,133 @@ public class BridgeProperties {
         }
     }
 
+    public static class Broker {
+        private String name;
+
+        /** {@code host:port} list, exactly as a Kafka client takes it. */
+        private String bootstrapServers;
+
+        private BrokerPolicy policy = new BrokerPolicy();
+
+        private Map<String, ProfileOverride> profiles = new LinkedHashMap<>();
+
+        /**
+         * Raw Kafka client settings, passed through untouched: {@code security.protocol},
+         * {@code sasl.jaas.config}, truststore paths. Every real cluster needs some of these and
+         * enumerating them here would be a losing race with the Kafka release cycle.
+         */
+        private Map<String, String> client = new LinkedHashMap<>();
+
+        public String getName() {
+            return name;
+        }
+
+        public void setName(String name) {
+            this.name = name;
+        }
+
+        public String getBootstrapServers() {
+            return bootstrapServers;
+        }
+
+        public void setBootstrapServers(String bootstrapServers) {
+            this.bootstrapServers = bootstrapServers;
+        }
+
+        public BrokerPolicy getPolicy() {
+            return policy;
+        }
+
+        public void setPolicy(BrokerPolicy policy) {
+            this.policy = policy;
+        }
+
+        public Map<String, ProfileOverride> getProfiles() {
+            return profiles;
+        }
+
+        public void setProfiles(Map<String, ProfileOverride> profiles) {
+            this.profiles = profiles;
+        }
+
+        public Map<String, String> getClient() {
+            return client;
+        }
+
+        public void setClient(Map<String, String> client) {
+            this.client = client;
+        }
+    }
+
+    /**
+     * The same shape as {@link Policy} in a different vocabulary: topics instead of tables,
+     * messages instead of rows.
+     *
+     * <p>Kept as its own type rather than reusing {@code Policy} with generic names. Both bind
+     * to the same {@code PolicyProfile}, but the YAML an operator writes should say
+     * {@code allow-topics}, and a shared type would force one backend's words onto the other.
+     */
+    public static class BrokerPolicy {
+        /** Wildcards are expected here — {@code orders.*} is how topic families are named. */
+        private List<String> allowTopics = new ArrayList<>();
+
+        /** Enumerated only; {@code *} is rejected. Requires {@code mode: read-write} as well. */
+        private List<String> allowWriteTopics = new ArrayList<>();
+
+        private int maxMessages = 25;
+        private DataSize maxResultBytes = DataSize.ofKilobytes(512);
+        private Duration requestTimeout = Duration.ofSeconds(10);
+        private List<String> redactHeaders = new ArrayList<>();
+
+        public List<String> getAllowTopics() {
+            return allowTopics;
+        }
+
+        public void setAllowTopics(List<String> allowTopics) {
+            this.allowTopics = allowTopics;
+        }
+
+        public List<String> getAllowWriteTopics() {
+            return allowWriteTopics;
+        }
+
+        public void setAllowWriteTopics(List<String> allowWriteTopics) {
+            this.allowWriteTopics = allowWriteTopics;
+        }
+
+        public int getMaxMessages() {
+            return maxMessages;
+        }
+
+        public void setMaxMessages(int maxMessages) {
+            this.maxMessages = maxMessages;
+        }
+
+        public DataSize getMaxResultBytes() {
+            return maxResultBytes;
+        }
+
+        public void setMaxResultBytes(DataSize maxResultBytes) {
+            this.maxResultBytes = maxResultBytes;
+        }
+
+        public Duration getRequestTimeout() {
+            return requestTimeout;
+        }
+
+        public void setRequestTimeout(Duration requestTimeout) {
+            this.requestTimeout = requestTimeout;
+        }
+
+        public List<String> getRedactHeaders() {
+            return redactHeaders;
+        }
+
+        public void setRedactHeaders(List<String> redactHeaders) {
+            this.redactHeaders = redactHeaders;
+        }
+    }
+
     public static class Policy {
         private List<String> allowTables = new ArrayList<>();
         private List<String> allowWriteTables = new ArrayList<>();
@@ -519,5 +648,13 @@ public class BridgeProperties {
 
     public void setDatasources(List<Datasource> datasources) {
         this.datasources = datasources;
+    }
+
+    public List<Broker> getBrokers() {
+        return brokers;
+    }
+
+    public void setBrokers(List<Broker> brokers) {
+        this.brokers = brokers;
     }
 }

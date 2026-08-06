@@ -4,11 +4,14 @@ import io.github.thompgt.jvmmcp.core.ProbeableBackend;
 import io.github.thompgt.jvmmcp.core.ToolRegistry;
 import io.github.thompgt.jvmmcp.jdbc.JdbcAdapter;
 import io.github.thompgt.jvmmcp.jdbc.JdbcDataSourceHandle;
+import io.github.thompgt.jvmmcp.kafka.KafkaAdapter;
+import io.github.thompgt.jvmmcp.kafka.KafkaBrokerHandle;
 import io.github.thompgt.jvmmcp.policy.AccessMode;
 import io.github.thompgt.jvmmcp.policy.AuditSink;
 import io.github.thompgt.jvmmcp.policy.PolicyProfile;
 import io.github.thompgt.jvmmcp.policy.PolicyProfiles;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -48,7 +51,8 @@ public final class BridgeAssembler implements AutoCloseable {
             requireText(ds.getName(), "bridge.datasources[].name");
             requireText(ds.getUrl(), "bridge.datasources[].url for datasource '" + ds.getName() + "'");
 
-            PolicyProfiles profiles = toProfiles(properties.getMode(), ds);
+            PolicyProfiles profiles = toProfiles(
+                    properties.getMode(), PolicySpec.of(ds.getName(), ds.getPolicy()), ds.getProfiles());
             PolicyProfile profile = profiles.defaultProfile();
             JdbcDataSourceHandle handle = new JdbcDataSourceHandle(
                     ds.getName(),
@@ -70,6 +74,36 @@ public final class BridgeAssembler implements AutoCloseable {
                     profiles.names().isEmpty() ? "[default only]" : profiles.names());
         }
 
+        for (BridgeProperties.Broker broker : properties.getBrokers()) {
+            requireText(broker.getName(), "bridge.brokers[].name");
+            requireText(
+                    broker.getBootstrapServers(),
+                    "bridge.brokers[].bootstrap-servers for broker '" + broker.getName() + "'");
+
+            PolicyProfiles profiles = toProfiles(
+                    properties.getMode(),
+                    PolicySpec.of(broker.getName(), broker.getPolicy()),
+                    broker.getProfiles());
+            PolicyProfile profile = profiles.defaultProfile();
+            KafkaBrokerHandle handle = new KafkaBrokerHandle(
+                    broker.getName(),
+                    broker.getBootstrapServers(),
+                    broker.getPolicy().getRequestTimeout(),
+                    broker.getClient());
+
+            KafkaAdapter adapter = new KafkaAdapter(handle, profiles, audit);
+            closeables.add(adapter);
+            backends.add(adapter);
+            registry.registerAll(adapter.tools());
+
+            log.info(
+                    "broker '{}' registered in {} mode with {} readable topic pattern(s) and profile(s) {}",
+                    broker.getName(),
+                    profile.mode(),
+                    profile.readableResources().size(),
+                    profiles.names().isEmpty() ? "[default only]" : profiles.names());
+        }
+
         if (registry.toolCount() == 0) {
             // An MCP server with no tools looks healthy and is useless — the client connects,
             // sees nothing, and the user concludes the model "can't do it". Fail loudly.
@@ -86,68 +120,99 @@ public final class BridgeAssembler implements AutoCloseable {
         return List.copyOf(backends);
     }
 
-    private static PolicyProfiles toProfiles(AccessMode globalMode, BridgeProperties.Datasource ds) {
-        PolicyProfile backendDefault = toProfile(globalMode, ds);
-        if (ds.getProfiles().isEmpty()) {
+    /**
+     * One backend's policy in backend-neutral terms.
+     *
+     * <p>Datasources speak tables and rows, brokers speak topics and messages, and the operator
+     * should write the word that fits the backend. This is where the two vocabularies meet, so
+     * that the profile overlay and the narrowing check exist once rather than once per adapter —
+     * a second copy of that logic is a second place for the two to disagree about what
+     * "narrower" means.
+     */
+    private record PolicySpec(
+            String backendName,
+            List<String> allowRead,
+            List<String> allowWrite,
+            int maxRecords,
+            long maxResultBytes,
+            Duration timeout,
+            List<String> redact) {
+
+        static PolicySpec of(String name, BridgeProperties.Policy p) {
+            return new PolicySpec(
+                    name,
+                    p.getAllowTables(),
+                    p.getAllowWriteTables(),
+                    p.getMaxRows(),
+                    p.getMaxResultBytes().toBytes(),
+                    p.getStatementTimeout(),
+                    p.getRedactColumns());
+        }
+
+        static PolicySpec of(String name, BridgeProperties.BrokerPolicy p) {
+            return new PolicySpec(
+                    name,
+                    p.getAllowTopics(),
+                    p.getAllowWriteTopics(),
+                    p.getMaxMessages(),
+                    p.getMaxResultBytes().toBytes(),
+                    p.getRequestTimeout(),
+                    p.getRedactHeaders());
+        }
+
+        /** Applies a profile's deltas; every unset field inherits from this spec. */
+        PolicySpec with(BridgeProperties.ProfileOverride override) {
+            return new PolicySpec(
+                    backendName,
+                    override.getAllowTables() == null ? allowRead : override.getAllowTables(),
+                    override.getAllowWriteTables() == null ? allowWrite : override.getAllowWriteTables(),
+                    override.getMaxRows() == null ? maxRecords : override.getMaxRows(),
+                    override.getMaxResultBytes() == null
+                            ? maxResultBytes
+                            : override.getMaxResultBytes().toBytes(),
+                    override.getStatementTimeout() == null ? timeout : override.getStatementTimeout(),
+                    // The backend's patterns always apply; a profile can only add to them.
+                    concat(redact, override.getRedactColumns()));
+        }
+
+        PolicyProfile toProfile(AccessMode mode, AccessMode overrideMode) {
+            PolicyProfile.Builder builder = PolicyProfile.builder(backendName)
+                    .mode(overrideMode == null ? mode : overrideMode)
+                    .allowRead(allowRead)
+                    .maxRows(maxRecords)
+                    .maxResultBytes(maxResultBytes)
+                    .timeout(timeout)
+                    .redact(redact);
+            if (!allowWrite.isEmpty()) {
+                // Rejects wildcards, and build() rejects the list entirely unless mode is
+                // READ_WRITE — the two independent opt-ins from ADR 003.
+                builder.allowWrite(allowWrite);
+            }
+            return builder.build();
+        }
+
+        private static List<String> concat(List<String> a, List<String> b) {
+            List<String> merged = new ArrayList<>(a);
+            b.stream().filter(entry -> !merged.contains(entry)).forEach(merged::add);
+            return merged;
+        }
+    }
+
+    private static PolicyProfiles toProfiles(
+            AccessMode globalMode, PolicySpec spec, Map<String, BridgeProperties.ProfileOverride> overrides) {
+        PolicyProfile backendDefault = spec.toProfile(globalMode, null);
+        if (overrides.isEmpty()) {
             return PolicyProfiles.of(backendDefault);
         }
 
         Map<String, PolicyProfile> named = new LinkedHashMap<>();
-        for (Map.Entry<String, BridgeProperties.ProfileOverride> entry : ds.getProfiles().entrySet()) {
-            named.put(entry.getKey(), overlay(backendDefault, globalMode, ds, entry.getValue()));
+        for (Map.Entry<String, BridgeProperties.ProfileOverride> entry : overrides.entrySet()) {
+            named.put(
+                    entry.getKey(),
+                    spec.with(entry.getValue()).toProfile(globalMode, entry.getValue().getMode()));
         }
         // Rejects any profile broader than the default, naming the dimension that widened.
         return PolicyProfiles.of(backendDefault, named);
-    }
-
-    private static PolicyProfile toProfile(AccessMode globalMode, BridgeProperties.Datasource ds) {
-        BridgeProperties.Policy p = ds.getPolicy();
-        PolicyProfile.Builder builder = PolicyProfile.builder(ds.getName())
-                .mode(globalMode)
-                .allowRead(p.getAllowTables())
-                .maxRows(p.getMaxRows())
-                .maxResultBytes(p.getMaxResultBytes().toBytes())
-                .timeout(p.getStatementTimeout())
-                .redact(p.getRedactColumns());
-
-        if (!p.getAllowWriteTables().isEmpty()) {
-            // Rejects wildcards, and build() rejects the list entirely unless mode is
-            // READ_WRITE — the two independent opt-ins from ADR 003.
-            builder.allowWrite(p.getAllowWriteTables());
-        }
-        return builder.build();
-    }
-
-    /** Applies a profile's deltas on top of the datasource policy; unset fields inherit. */
-    private static PolicyProfile overlay(
-            PolicyProfile backendDefault,
-            AccessMode globalMode,
-            BridgeProperties.Datasource ds,
-            BridgeProperties.ProfileOverride override) {
-        BridgeProperties.Policy p = ds.getPolicy();
-        List<String> writable =
-                override.getAllowWriteTables() == null ? p.getAllowWriteTables() : override.getAllowWriteTables();
-
-        PolicyProfile.Builder builder = PolicyProfile.builder(ds.getName())
-                .mode(override.getMode() == null ? globalMode : override.getMode())
-                .allowRead(override.getAllowTables() == null ? p.getAllowTables() : override.getAllowTables())
-                .maxRows(override.getMaxRows() == null ? p.getMaxRows() : override.getMaxRows())
-                .maxResultBytes(
-                        override.getMaxResultBytes() == null
-                                ? p.getMaxResultBytes().toBytes()
-                                : override.getMaxResultBytes().toBytes())
-                .timeout(
-                        override.getStatementTimeout() == null
-                                ? p.getStatementTimeout()
-                                : override.getStatementTimeout())
-                // The default's patterns always apply; a profile can only add to them.
-                .redact(backendDefault.redactionPatterns())
-                .redact(override.getRedactColumns());
-
-        if (!writable.isEmpty()) {
-            builder.allowWrite(writable);
-        }
-        return builder.build();
     }
 
     private static void requireText(String value, String what) {

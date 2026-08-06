@@ -241,6 +241,80 @@ class KafkaAdapterIntegrationTest {
     }
 
     @Test
+    @DisplayName("peek from an explicit offset returns those messages and where to continue")
+    void peekReadsFromAnExplicitOffset() {
+        ToolOutcome outcome = call("kafka.peek", Map.of("topic", TOPIC, "partition", 0, "from_offset", 6));
+
+        assertThat(outcome.error()).isFalse();
+        Map<?, ?> structured = (Map<?, ?>) outcome.structured();
+
+        // Offsets 6..9 of a partition holding 10 messages.
+        assertThat(structured.get("returned")).isEqualTo(4);
+        List<?> messages = (List<?>) structured.get("messages");
+        Map<?, ?> first = (Map<?, ?>) messages.get(0);
+        assertThat(first.get("offset")).isEqualTo(6L);
+        assertThat(first.get("value")).isEqualTo("message 6");
+        assertThat(first.get("valueEncoding")).isEqualTo("utf-8");
+
+        // The resume point, so paging is an explicit read rather than a consumer this process
+        // has to keep alive between tool calls.
+        assertThat(((Map<?, ?>) structured.get("nextOffsets")).get("0")).isEqualTo(10L);
+    }
+
+    @Test
+    @DisplayName("peek defaults to the tail and commits nothing")
+    void peekNeverMovesARealConsumersOffset() throws Exception {
+        ToolOutcome outcome = call("kafka.peek", Map.of("topic", TOPIC));
+
+        assertThat(outcome.error()).isFalse();
+        Map<?, ?> structured = (Map<?, ?>) outcome.structured();
+        // 25 message budget over 2 partitions: 12 from the tail of each, and p0 only has 10.
+        assertThat((Integer) structured.get("returned")).isEqualTo(22);
+        assertThat(outcome.summary()).contains("No offsets were committed");
+
+        // The point of the tool: the stuck consumer is exactly as stuck as it was.
+        Properties props = new Properties();
+        props.put(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, KAFKA.getBootstrapServers());
+        try (Admin client = Admin.create(props)) {
+            Map<TopicPartition, org.apache.kafka.clients.consumer.OffsetAndMetadata> committed = client
+                    .listConsumerGroupOffsets(GROUP)
+                    .partitionsToOffsetAndMetadata()
+                    .get();
+            assertThat(committed.get(new TopicPartition(TOPIC, 0)).offset()).isEqualTo(6L);
+            assertThat(committed.get(new TopicPartition(TOPIC, 1)).offset()).isEqualTo(0L);
+
+            // And it left no group of its own behind for the next person to wonder about.
+            assertThat(client.listConsumerGroups().valid().get())
+                    .noneMatch(g -> g.groupId().startsWith(KafkaBrokerHandle.PEEK_GROUP_PREFIX));
+        }
+    }
+
+    @Test
+    @DisplayName("peek says which cap stopped it and where to resume")
+    void peekReportsTruncation() {
+        ToolOutcome outcome =
+                call("kafka.peek", Map.of("topic", TOPIC, "partition", 1, "from_offset", 0, "max_messages", 5));
+
+        assertThat(outcome.error()).isFalse();
+        Map<?, ?> structured = (Map<?, ?>) outcome.structured();
+        assertThat(structured.get("returned")).isEqualTo(5);
+        assertThat(structured.get("truncated")).isEqualTo(true);
+        assertThat(structured.get("truncationReason")).isEqualTo("messages");
+        assertThat(((Map<?, ?>) structured.get("nextOffsets")).get("1")).isEqualTo(5L);
+        assertThat(outcome.summary()).contains("Continue with from_offset");
+    }
+
+    @Test
+    @DisplayName("peek is refused on a topic off the allowlist")
+    void peekRespectsTheAllowlist() {
+        ToolOutcome outcome = call("kafka.peek", Map.of("topic", OTHER_TOPIC));
+
+        assertThat(outcome.error()).isTrue();
+        assertThat(outcome.summary()).contains(OTHER_TOPIC).contains("orders.*");
+        assertThat(String.valueOf(outcome.structured())).doesNotContain("must never reach a model");
+    }
+
+    @Test
     void everyCallIsAudited() {
         call("kafka.list_topics", Map.of());
 

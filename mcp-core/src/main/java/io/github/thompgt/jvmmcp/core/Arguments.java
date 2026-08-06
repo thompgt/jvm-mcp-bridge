@@ -70,6 +70,32 @@ public final class Arguments {
         throw new BadArgumentException("argument " + name + " must be a number");
     }
 
+    /**
+     * As {@link #optionalInt}, for values that genuinely outgrow an {@code int} — a Kafka
+     * offset is the case this exists for. Reading one as an {@code int} works on every test
+     * fixture and truncates on the one busy topic anybody asks about.
+     */
+    public long optionalLong(String name, long fallback) {
+        Object value = raw.get(name);
+        if (value == null) {
+            return fallback;
+        }
+        if (value instanceof Number n) {
+            if (n instanceof Long || n instanceof Integer || n instanceof Short || n instanceof Byte) {
+                return n.longValue();
+            }
+            double d = n.doubleValue();
+            // A double carries offsets exactly only to 2^53; beyond that "whole number" is a
+            // property of the decoded double, not of what the client wrote.
+            if (d != Math.floor(d) || Double.isInfinite(d) || Math.abs(d) > (double) (1L << 53)) {
+                throw new BadArgumentException(
+                        "argument " + name + " must be a whole number that survives JSON encoding");
+            }
+            return (long) d;
+        }
+        throw new BadArgumentException("argument " + name + " must be a number");
+    }
+
     public boolean optionalBoolean(String name, boolean fallback) {
         Object value = raw.get(name);
         if (value == null) {

@@ -12,6 +12,37 @@ bridge:
   mode: read-only
   transport: stdio
 
+management:
+  endpoints:
+    web:
+      exposure:
+        # Health only. This endpoint is not behind the MCP authentication filter — a probe
+        # cannot present a credential — so nothing that lists configuration goes here.
+        include: health
+  endpoint:
+    health:
+      # Per-backend detail is the reason this endpoint exists; BackendProbe is written to
+      # carry no URL, username or credential so that showing it is safe. If the port is
+      # reachable from outside the deployment, move Actuator with management.server.port.
+      show-details: always
+      probes:
+        enabled: true
+      group:
+        # Liveness and readiness deliberately exclude the backends. A database that has gone
+        # away is not a reason to restart or de-register this process: the JVM is fine, the
+        # other backends still answer, and restarting reconnects nothing that a retry would
+        # not. Backend state belongs on the dashboard, not in the orchestrator's kill loop.
+        liveness:
+          include: livenessState
+        readiness:
+          include: readinessState,mcp
+      status:
+        order: DOWN,OUT_OF_SERVICE,DEGRADED,UNKNOWN,UP
+        http-mapping:
+          # Degraded still serves traffic, and says so with a 200 so a load balancer keeps
+          # sending the calls that would have worked.
+          degraded: 200
+
 logging:
   pattern:
     # No colour codes: this stream is read by a log collector or a human tailing a file,

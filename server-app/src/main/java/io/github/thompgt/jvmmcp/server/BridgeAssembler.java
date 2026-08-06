@@ -1,5 +1,6 @@
 package io.github.thompgt.jvmmcp.server;
 
+import io.github.thompgt.jvmmcp.core.ProbeableBackend;
 import io.github.thompgt.jvmmcp.core.ToolRegistry;
 import io.github.thompgt.jvmmcp.jdbc.JdbcAdapter;
 import io.github.thompgt.jvmmcp.jdbc.JdbcDataSourceHandle;
@@ -26,6 +27,7 @@ public final class BridgeAssembler implements AutoCloseable {
     private static final Logger log = LoggerFactory.getLogger(BridgeAssembler.class);
 
     private final List<AutoCloseable> closeables = new ArrayList<>();
+    private final List<ProbeableBackend> backends = new ArrayList<>();
 
     public AuditSink auditSink(BridgeProperties properties) {
         String file = properties.getAudit().getFile();
@@ -57,6 +59,7 @@ public final class BridgeAssembler implements AutoCloseable {
 
             JdbcAdapter adapter = new JdbcAdapter(handle, profiles, audit);
             closeables.add(adapter);
+            backends.add(adapter);
             registry.registerAll(adapter.tools());
 
             log.info(
@@ -76,6 +79,11 @@ public final class BridgeAssembler implements AutoCloseable {
         }
         log.info("registered {} tool(s): {}", registry.toolCount(), registry.toolNames());
         return registry;
+    }
+
+    /** Every configured backend, in declaration order. Populated by {@link #assemble}. */
+    public List<ProbeableBackend> backends() {
+        return List.copyOf(backends);
     }
 
     private static PolicyProfiles toProfiles(AccessMode globalMode, BridgeProperties.Datasource ds) {
@@ -158,5 +166,6 @@ public final class BridgeAssembler implements AutoCloseable {
             }
         }
         closeables.clear();
+        backends.clear();
     }
 }

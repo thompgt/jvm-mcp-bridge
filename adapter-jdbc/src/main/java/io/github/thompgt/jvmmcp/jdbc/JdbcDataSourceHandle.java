@@ -56,6 +56,30 @@ public final class JdbcDataSourceHandle implements AutoCloseable {
         return dataSource;
     }
 
+    /**
+     * Takes a connection from the pool and asks the driver whether it is still good.
+     *
+     * <p>Not a {@code SELECT 1}: {@link Connection#isValid} is what the driver itself considers
+     * a live connection, it runs no user SQL, and it honours the timeout even when the server
+     * has stopped answering rather than gone away — which is the failure mode a query-based
+     * check hangs on.
+     *
+     * @return the product name and version, for a caller that wants to report them
+     */
+    ProductInfo validate(Duration timeout) throws SQLException {
+        try (Connection connection = dataSource.getConnection()) {
+            int seconds = Math.max(1, (int) timeout.toSeconds());
+            if (!connection.isValid(seconds)) {
+                throw new SQLException("the driver reports the connection is not valid");
+            }
+            var meta = connection.getMetaData();
+            return new ProductInfo(meta.getDatabaseProductName(), meta.getDatabaseProductVersion());
+        }
+    }
+
+    /** What the database says it is. Neither field contains a host or a credential. */
+    record ProductInfo(String product, String version) {}
+
     @Override
     public void close() {
         dataSource.close();

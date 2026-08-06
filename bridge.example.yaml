@@ -13,8 +13,44 @@ bridge:
   mode: read-only
 
   # stdio | http. stdio is what an MCP client launches as a subprocess; http serves the
-  # Streamable HTTP transport on /mcp for a shared deployment (Phase 2).
+  # Streamable HTTP transport on /mcp for a shared deployment.
   transport: stdio
+
+  # Applies only to transport: http. Ignored entirely under stdio, where the caller is the
+  # process that launched this one and there is nothing to authenticate.
+  http:
+    endpoint: /mcp
+
+    # Browser callers only. Left empty, no browser origin is accepted — an MCP endpoint on
+    # localhost with no Origin check is reachable by any page the user happens to visit.
+    allowed-origins: []
+    allowed-hosts: []
+
+    auth:
+      # api-key | oauth2 | none
+      mode: api-key
+
+      keys:
+        # `principal` is the identity in the audit log; `profile` picks the policy below.
+        # Omit `profile` and the caller gets the datasource's own policy block.
+        - key: ${ANALYST_KEY}
+          principal: analytics-team
+          profile: analyst
+        - key: ${ONCALL_KEY}
+          principal: oncall
+        # Never commit a literal key. These resolve from the environment, and a key shorter
+        # than 16 characters is refused at startup.
+
+      # mode: oauth2 instead, for a deployment that already has an identity provider.
+      #
+      # oauth2:
+      #   issuer-uri: https://login.example.com/
+      #   # RFC 8707 resource indicator: the URI identifying THIS bridge. Required. Without
+      #   # it, a token the same issuer minted for any other service would be accepted here.
+      #   audience: https://bridge.internal/mcp
+      #   principal-claim: sub
+      #   profile-claim: bridge_profile
+      #   required-scope: mcp.read
 
   audit:
     # Every call — allowed or denied — is written here as one JSON object per line, with the
@@ -52,6 +88,28 @@ bridge:
         # config load, deliberately.
         # allow-write-tables:
         #   - order_items
+
+      # Per-principal policy. A key or a token claim names one of these; anyone who names
+      # none gets the `policy` block above.
+      #
+      # Each profile lists only what it CHANGES. Everything unstated is inherited, so the
+      # common case — "the same, but fewer tables" — is two lines, and there is no second
+      # copy of the caps to keep in step with the first.
+      #
+      # A profile may only narrow. One that reads a table the datasource does not, runs
+      # longer, returns more rows, or drops a redaction the datasource applies is rejected
+      # at startup, naming the dimension that widened. That makes the block above a true
+      # ceiling: reviewing what this database exposes means reading one list, and the tool
+      # descriptions generated from it always overstate rather than understate the limits.
+      profiles:
+        analyst:
+          allow-tables: [customers, orders]
+          max-rows: 50
+          # Added to the datasource's redactions, never instead of them.
+          redact-columns: ["customers.country"]
+        support:
+          allow-tables: [orders]
+          statement-timeout: 2s
 
   # Phase 3+. Present here so the shape is visible; unconfigured backends register no tools.
   #

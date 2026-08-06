@@ -50,8 +50,9 @@ both a schema lookup and a query, and the audit log shows both calls with their 
 - [x] **2.3 OAuth2 resource server** — JWT validation with RFC 8707 resource indicators, per
       the 2025-06-18 security revision; audience binding so a token for another service is
       rejected.
-- [ ] **2.4 Per-principal profiles** — allowlists and caps resolved from the authenticated
-      principal, not from global config.
+- [x] **2.4 Per-principal profiles** — allowlists and caps resolved from the authenticated
+      principal, not from global config. Named profiles may only *narrow* the backend
+      default, checked at startup, so tool descriptions stay an upper bound.
 - [ ] **2.5 Health + readiness** — Actuator endpoints that report each configured backend
       separately, so a dead broker doesn't mark the whole bridge down.
 

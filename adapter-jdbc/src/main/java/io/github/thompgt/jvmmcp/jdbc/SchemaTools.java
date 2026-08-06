@@ -5,6 +5,7 @@ import io.github.thompgt.jvmmcp.core.BridgeTool;
 import io.github.thompgt.jvmmcp.core.Schemas;
 import io.github.thompgt.jvmmcp.core.ToolOutcome;
 import io.github.thompgt.jvmmcp.policy.PolicyEngine;
+import io.github.thompgt.jvmmcp.policy.PolicyProfile;
 import io.github.thompgt.jvmmcp.policy.Redactor;
 import io.modelcontextprotocol.spec.McpSchema;
 import java.sql.Connection;
@@ -68,6 +69,11 @@ public final class SchemaTools {
         public ToolOutcome call(Map<String, Object> arguments) {
             // No named resource: this reads catalog metadata, and the allowlist is applied to
             // the results rather than to the request.
+            // The caller's own allowlist, not the backend's: this listing is what tells the
+            // model the boundary exists, and a restricted profile that saw the full list would
+            // spend its turns querying tables it is about to be refused.
+            PolicyProfile effective = policy.effectiveProfile();
+
             return policy.guardRead("schema.list_tables", List.of(), 0, limits -> {
                 List<Map<String, Object>> tables = new ArrayList<>();
                 try (Connection connection = handle.connection()) {
@@ -75,7 +81,7 @@ public final class SchemaTools {
                     try (ResultSet rs = meta.getTables(null, null, "%", new String[] {"TABLE", "VIEW"})) {
                         while (rs.next()) {
                             String name = rs.getString("TABLE_NAME");
-                            if (name == null || !policy.profile().isReadable(name)) {
+                            if (name == null || !effective.isReadable(name)) {
                                 continue;
                             }
                             Map<String, Object> row = new LinkedHashMap<>();
@@ -110,12 +116,10 @@ public final class SchemaTools {
     static final class DescribeTableTool implements BridgeTool {
         private final JdbcDataSourceHandle handle;
         private final PolicyEngine policy;
-        private final Redactor redactor;
 
         DescribeTableTool(JdbcDataSourceHandle handle, PolicyEngine policy) {
             this.handle = handle;
             this.policy = policy;
-            this.redactor = new Redactor(policy.profile().redactionPatterns());
         }
 
         @Override
@@ -151,6 +155,10 @@ public final class SchemaTools {
         public ToolOutcome call(Map<String, Object> arguments) {
             String requested = new Arguments(arguments).requireString("table");
             String table = SqlGuard.normalise(requested);
+
+            // Per call for the same reason as sql.query: which columns are marked redacted
+            // depends on the caller's profile, not on the backend's.
+            Redactor redactor = new Redactor(policy.effectiveProfile().redactionPatterns());
 
             // Asking about the table by name is itself a read of that table's metadata, so it
             // goes through the same allowlist — otherwise the schema tool becomes the way to

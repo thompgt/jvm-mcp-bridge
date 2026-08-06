@@ -6,9 +6,12 @@ import io.github.thompgt.jvmmcp.jdbc.JdbcDataSourceHandle;
 import io.github.thompgt.jvmmcp.policy.AccessMode;
 import io.github.thompgt.jvmmcp.policy.AuditSink;
 import io.github.thompgt.jvmmcp.policy.PolicyProfile;
+import io.github.thompgt.jvmmcp.policy.PolicyProfiles;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -43,7 +46,8 @@ public final class BridgeAssembler implements AutoCloseable {
             requireText(ds.getName(), "bridge.datasources[].name");
             requireText(ds.getUrl(), "bridge.datasources[].url for datasource '" + ds.getName() + "'");
 
-            PolicyProfile profile = toProfile(properties.getMode(), ds);
+            PolicyProfiles profiles = toProfiles(properties.getMode(), ds);
+            PolicyProfile profile = profiles.defaultProfile();
             JdbcDataSourceHandle handle = new JdbcDataSourceHandle(
                     ds.getName(),
                     ds.getUrl(),
@@ -51,15 +55,16 @@ public final class BridgeAssembler implements AutoCloseable {
                     ds.getPassword(),
                     ds.getPolicy().getStatementTimeout());
 
-            JdbcAdapter adapter = new JdbcAdapter(handle, profile, audit);
+            JdbcAdapter adapter = new JdbcAdapter(handle, profiles, audit);
             closeables.add(adapter);
             registry.registerAll(adapter.tools());
 
             log.info(
-                    "datasource '{}' registered in {} mode with {} readable table(s)",
+                    "datasource '{}' registered in {} mode with {} readable table(s) and profile(s) {}",
                     ds.getName(),
                     profile.mode(),
-                    profile.readableResources().size());
+                    profile.readableResources().size(),
+                    profiles.names().isEmpty() ? "[default only]" : profiles.names());
         }
 
         if (registry.toolCount() == 0) {
@@ -71,6 +76,20 @@ public final class BridgeAssembler implements AutoCloseable {
         }
         log.info("registered {} tool(s): {}", registry.toolCount(), registry.toolNames());
         return registry;
+    }
+
+    private static PolicyProfiles toProfiles(AccessMode globalMode, BridgeProperties.Datasource ds) {
+        PolicyProfile backendDefault = toProfile(globalMode, ds);
+        if (ds.getProfiles().isEmpty()) {
+            return PolicyProfiles.of(backendDefault);
+        }
+
+        Map<String, PolicyProfile> named = new LinkedHashMap<>();
+        for (Map.Entry<String, BridgeProperties.ProfileOverride> entry : ds.getProfiles().entrySet()) {
+            named.put(entry.getKey(), overlay(backendDefault, globalMode, ds, entry.getValue()));
+        }
+        // Rejects any profile broader than the default, naming the dimension that widened.
+        return PolicyProfiles.of(backendDefault, named);
     }
 
     private static PolicyProfile toProfile(AccessMode globalMode, BridgeProperties.Datasource ds) {
@@ -87,6 +106,38 @@ public final class BridgeAssembler implements AutoCloseable {
             // Rejects wildcards, and build() rejects the list entirely unless mode is
             // READ_WRITE — the two independent opt-ins from ADR 003.
             builder.allowWrite(p.getAllowWriteTables());
+        }
+        return builder.build();
+    }
+
+    /** Applies a profile's deltas on top of the datasource policy; unset fields inherit. */
+    private static PolicyProfile overlay(
+            PolicyProfile backendDefault,
+            AccessMode globalMode,
+            BridgeProperties.Datasource ds,
+            BridgeProperties.ProfileOverride override) {
+        BridgeProperties.Policy p = ds.getPolicy();
+        List<String> writable =
+                override.getAllowWriteTables() == null ? p.getAllowWriteTables() : override.getAllowWriteTables();
+
+        PolicyProfile.Builder builder = PolicyProfile.builder(ds.getName())
+                .mode(override.getMode() == null ? globalMode : override.getMode())
+                .allowRead(override.getAllowTables() == null ? p.getAllowTables() : override.getAllowTables())
+                .maxRows(override.getMaxRows() == null ? p.getMaxRows() : override.getMaxRows())
+                .maxResultBytes(
+                        override.getMaxResultBytes() == null
+                                ? p.getMaxResultBytes().toBytes()
+                                : override.getMaxResultBytes().toBytes())
+                .timeout(
+                        override.getStatementTimeout() == null
+                                ? p.getStatementTimeout()
+                                : override.getStatementTimeout())
+                // The default's patterns always apply; a profile can only add to them.
+                .redact(backendDefault.redactionPatterns())
+                .redact(override.getRedactColumns());
+
+        if (!writable.isEmpty()) {
+            builder.allowWrite(writable);
         }
         return builder.build();
     }

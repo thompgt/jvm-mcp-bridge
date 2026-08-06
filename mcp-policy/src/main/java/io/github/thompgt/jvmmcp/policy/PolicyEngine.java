@@ -25,13 +25,17 @@ public final class PolicyEngine {
 
     private static final Logger log = LoggerFactory.getLogger(PolicyEngine.class);
 
-    private final PolicyProfile profile;
+    private final PolicyProfiles profiles;
     private final AuditSink audit;
     private final Clock clock;
     private final Supplier<Principal> principal;
 
     public PolicyEngine(PolicyProfile profile, AuditSink audit) {
-        this(profile, audit, Clock.systemUTC(), CallContext::principal);
+        this(PolicyProfiles.of(profile), audit);
+    }
+
+    public PolicyEngine(PolicyProfiles profiles, AuditSink audit) {
+        this(profiles, audit, Clock.systemUTC(), CallContext::principal);
     }
 
     /**
@@ -40,15 +44,27 @@ public final class PolicyEngine {
      *     request to whoever happened to start the server.
      */
     public PolicyEngine(
-            PolicyProfile profile, AuditSink audit, Clock clock, Supplier<Principal> principal) {
-        this.profile = profile;
+            PolicyProfiles profiles, AuditSink audit, Clock clock, Supplier<Principal> principal) {
+        this.profiles = profiles;
         this.audit = audit;
         this.clock = clock;
         this.principal = principal;
     }
 
+    /**
+     * The backend default, which is what tool descriptors are built from.
+     *
+     * <p>Not the caller's profile — descriptors are generated once at startup, before anyone has
+     * connected. {@link PolicyProfiles} guarantees named profiles only narrow this, so a
+     * description is always an upper bound on what the caller will actually be allowed.
+     */
     public PolicyProfile profile() {
-        return profile;
+        return profiles.defaultProfile();
+    }
+
+    /** The profile in force for whoever is calling right now. */
+    public PolicyProfile effectiveProfile() {
+        return profiles.forPrincipal(principal.get());
     }
 
     /** The body of a permitted call. Receives the bounds it must respect. */
@@ -69,7 +85,10 @@ public final class PolicyEngine {
      * @param plan what to return instead of executing when the mode is {@code DRY_RUN}
      */
     public ToolOutcome guard(PolicyRequest request, PlanDescriber plan, GuardedCall call) {
-        Decision decision = evaluate(request);
+        // Resolved once and reused, so a decision and the call it permits cannot be evaluated
+        // against two different profiles if the binding were to change mid-call.
+        PolicyProfile profile = effectiveProfile();
+        Decision decision = evaluate(request, profile);
         long startedAt = clock.millis();
 
         if (!decision.allowed()) {
@@ -116,6 +135,10 @@ public final class PolicyEngine {
      * paths should go through {@link #guard} so the audit record is not optional.
      */
     public Decision evaluate(PolicyRequest request) {
+        return evaluate(request, effectiveProfile());
+    }
+
+    private Decision evaluate(PolicyRequest request, PolicyProfile profile) {
         if (request.write()) {
             if (profile.mode() != AccessMode.READ_WRITE) {
                 return Decision.deny(
@@ -151,7 +174,9 @@ public final class PolicyEngine {
                 new AuditRecord(
                         clock.instant(),
                         principal.get().name(),
-                        profile.backendName(),
+                        // Every profile on a backend shares its name, so the default's is right
+                        // whichever profile the decision was made against.
+                        profiles.defaultProfile().backendName(),
                         request.tool(),
                         request.resources(),
                         decision.allowed(),
@@ -182,8 +207,14 @@ public final class PolicyEngine {
                 call);
     }
 
-    /** The timeout an adapter should apply, exposed for connection setup. */
+    /**
+     * The timeout an adapter should apply when setting up a connection.
+     *
+     * <p>The backend default, because pools are built at startup. Per-call bounds come from the
+     * {@link EffectiveLimits} handed to a {@link GuardedCall}, which do reflect the caller's
+     * profile — an adapter that needs the caller's timeout must take it from there.
+     */
     public Duration timeout() {
-        return profile.timeout();
+        return profiles.defaultProfile().timeout();
     }
 }

@@ -40,6 +40,11 @@ public final class Redactor {
         }
     }
 
+    /** True when nothing is configured, so a caller can skip explaining redaction that cannot happen. */
+    public boolean isEmpty() {
+        return empty;
+    }
+
     public boolean isRedacted(String table, String column) {
         if (empty) {
             return false;

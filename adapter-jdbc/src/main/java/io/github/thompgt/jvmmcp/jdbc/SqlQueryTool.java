@@ -16,13 +16,11 @@ public final class SqlQueryTool implements BridgeTool {
 
     private final JdbcDataSourceHandle handle;
     private final PolicyEngine policy;
-    private final Redactor redactor;
     private final String toolName;
 
     public SqlQueryTool(JdbcDataSourceHandle handle, PolicyEngine policy) {
         this.handle = handle;
         this.policy = policy;
-        this.redactor = new Redactor(policy.profile().redactionPatterns());
         this.toolName = "sql.query";
     }
 
@@ -116,6 +114,11 @@ public final class SqlQueryTool implements BridgeTool {
 
         String primaryTable = read.tables().isEmpty() ? "" : read.tables().get(0);
 
+        // Built per call, not once: a narrower profile redacts *more*, and a redactor cached
+        // from the backend default would quietly hand a restricted caller the columns their
+        // profile exists to withhold.
+        Redactor redactor = new Redactor(policy.effectiveProfile().redactionPatterns());
+
         return policy.guardRead(toolName, read.tables(), requestedRows, limits -> {
             ResultSetReader.Page page =
                     JdbcQueryRunner.runQuery(handle, sql, primaryTable, limits, redactor);
@@ -127,11 +130,11 @@ public final class SqlQueryTool implements BridgeTool {
             structured.put("truncated", page.truncated());
             structured.put("truncationReason", page.truncationReason());
 
-            return ToolOutcome.success(structured, summarise(page), page.rows().size());
+            return ToolOutcome.success(structured, summarise(page, redactor), page.rows().size());
         });
     }
 
-    private String summarise(ResultSetReader.Page page) {
+    private String summarise(ResultSetReader.Page page, Redactor redactor) {
         StringBuilder sb = new StringBuilder();
         sb.append(page.rows().size()).append(" row(s), columns: ").append(String.join(", ", page.columns()));
         if (page.truncated()) {
@@ -141,7 +144,7 @@ public final class SqlQueryTool implements BridgeTool {
                             + " conclusion drawn from them is incomplete. Narrow the query or"
                             + " aggregate in SQL instead.");
         }
-        if (!policy.profile().redactionPatterns().isEmpty()) {
+        if (!redactor.isEmpty()) {
             sb.append("\n\nSome column values may show '")
                     .append(Redactor.MARKER)
                     .append("' — the data exists but policy withholds it.");

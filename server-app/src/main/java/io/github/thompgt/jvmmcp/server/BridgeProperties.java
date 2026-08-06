@@ -3,7 +3,9 @@ package io.github.thompgt.jvmmcp.server;
 import io.github.thompgt.jvmmcp.policy.AccessMode;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.util.unit.DataSize;
 
@@ -287,6 +289,7 @@ public class BridgeProperties {
         private String username;
         private String password;
         private Policy policy = new Policy();
+        private Map<String, ProfileOverride> profiles = new LinkedHashMap<>();
 
         public String getName() {
             return name;
@@ -326,6 +329,98 @@ public class BridgeProperties {
 
         public void setPolicy(Policy policy) {
             this.policy = policy;
+        }
+
+        /** Named profiles, keyed by the name an API key or a token claim refers to. */
+        public Map<String, ProfileOverride> getProfiles() {
+            return profiles;
+        }
+
+        public void setProfiles(Map<String, ProfileOverride> profiles) {
+            this.profiles = profiles;
+        }
+    }
+
+    /**
+     * A named profile, expressed as the differences from the datasource's own policy block.
+     *
+     * <p>Every field is nullable and unset means inherit. Writing it as a delta rather than a
+     * whole policy is what makes the common case — "the same, but only these two tables" —
+     * three lines of YAML, and it removes a class of mistake: an operator who copies the whole
+     * block to change one table has to keep the other five values in step with the default
+     * forever, and the day they don't, the profile silently stops narrowing what they meant.
+     *
+     * <p>Widening is still rejected at startup by {@code PolicyProfiles}; this only makes the
+     * usual case impossible to get wrong rather than merely caught.
+     */
+    public static class ProfileOverride {
+        private AccessMode mode;
+        private List<String> allowTables;
+        private List<String> allowWriteTables;
+        private Integer maxRows;
+        private DataSize maxResultBytes;
+        private Duration statementTimeout;
+
+        /**
+         * Additional redaction, always added to the datasource's own. A profile may not un-redact
+         * something the backend redacts, so there is no way to express removal here.
+         */
+        private List<String> redactColumns = new ArrayList<>();
+
+        public AccessMode getMode() {
+            return mode;
+        }
+
+        public void setMode(AccessMode mode) {
+            this.mode = mode;
+        }
+
+        public List<String> getAllowTables() {
+            return allowTables;
+        }
+
+        public void setAllowTables(List<String> allowTables) {
+            this.allowTables = allowTables;
+        }
+
+        public List<String> getAllowWriteTables() {
+            return allowWriteTables;
+        }
+
+        public void setAllowWriteTables(List<String> allowWriteTables) {
+            this.allowWriteTables = allowWriteTables;
+        }
+
+        public Integer getMaxRows() {
+            return maxRows;
+        }
+
+        public void setMaxRows(Integer maxRows) {
+            this.maxRows = maxRows;
+        }
+
+        public DataSize getMaxResultBytes() {
+            return maxResultBytes;
+        }
+
+        public void setMaxResultBytes(DataSize maxResultBytes) {
+            this.maxResultBytes = maxResultBytes;
+        }
+
+        public Duration getStatementTimeout() {
+            return statementTimeout;
+        }
+
+        public void setStatementTimeout(Duration statementTimeout) {
+            this.statementTimeout = statementTimeout;
+        }
+
+        public List<String> getRedactColumns() {
+            return redactColumns;
+        }
+
+        public void setRedactColumns(List<String> redactColumns) {
+            this.redactColumns = redactColumns;
         }
     }
 

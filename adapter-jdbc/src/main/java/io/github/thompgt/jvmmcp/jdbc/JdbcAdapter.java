@@ -4,6 +4,7 @@ import io.github.thompgt.jvmmcp.core.BridgeTool;
 import io.github.thompgt.jvmmcp.policy.AuditSink;
 import io.github.thompgt.jvmmcp.policy.PolicyEngine;
 import io.github.thompgt.jvmmcp.policy.PolicyProfile;
+import io.github.thompgt.jvmmcp.policy.PolicyProfiles;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -20,15 +21,19 @@ public final class JdbcAdapter implements AutoCloseable {
     private final JdbcDataSourceHandle handle;
     private final PolicyEngine policy;
 
+    /** Single-profile backend: every caller gets the same policy. */
     public JdbcAdapter(JdbcDataSourceHandle handle, PolicyProfile profile, AuditSink audit) {
+        this(handle, PolicyProfiles.of(profile), audit);
+    }
+
+    public JdbcAdapter(JdbcDataSourceHandle handle, PolicyProfiles profiles, AuditSink audit) {
         this.handle = handle;
-        this.policy = new PolicyEngine(profile, audit);
+        this.policy = new PolicyEngine(profiles, audit);
     }
 
     /**
      * Tools are named without a datasource prefix when there is only one datasource, which is
-     * the common case and keeps the names the model sees short. Multi-datasource naming is
-     * Phase 2 work, once per-principal profiles exist to disambiguate them.
+     * the common case and keeps the names the model sees short.
      */
     public List<BridgeTool> tools() {
         List<BridgeTool> tools = new ArrayList<>();

@@ -124,6 +124,48 @@ bridge:
 `dry-run` returns the validated plan — the parsed SQL, the table it resolved to — without
 touching the backend. It is the honest way to audit the guardrails before granting access.
 
+### Shared deployment
+
+`transport: http` serves the Streamable HTTP transport on `/mcp` for a team rather than one
+laptop. Callers authenticate with a static API key or an OAuth2 bearer token, and each
+credential names a **policy profile**:
+
+```yaml
+bridge:
+  transport: http
+  http:
+    auth:
+      mode: api-key                    # api-key | oauth2 | none
+      keys:
+        - key: ${ANALYST_KEY}
+          principal: analytics-team    # the identity in the audit log
+          profile: analyst             # the policy below
+  datasources:
+    - name: orders-db
+      policy:
+        allow-tables: [customers, orders, order_items]
+        max-rows: 200
+      profiles:
+        analyst:                       # states only what it changes
+          allow-tables: [customers]
+          max-rows: 50
+```
+
+A profile may only **narrow** the datasource policy. One that reads a table the datasource
+does not, runs longer, returns more rows, or drops a redaction is rejected at startup, naming
+the dimension that widened. That keeps the `policy` block a true ceiling — reviewing what a
+database exposes means reading one list — and it is what makes tool descriptions safe to
+generate from it: a caller may be permitted less than the description promises, never more.
+
+Under `mode: oauth2`, an `audience` is mandatory. It is the RFC 8707 resource indicator
+identifying this bridge, and without it a token the same issuer minted for any other service
+would be accepted here — the confused-deputy problem the 2025-06-18 security revision exists
+to close.
+
+`/actuator/health/backends` reports each backend separately. An unreachable one is `DEGRADED`
+at HTTP 200 and is excluded from liveness and readiness: a dead broker should not restart the
+process or stop the database questions that still work.
+
 ## Build
 
 ```bash
@@ -154,7 +196,7 @@ take the claim:
 |---|---|
 | 0 — Scaffolding | ✅ |
 | 1 — JDBC vertical slice | ✅ |
-| 2 — Streamable HTTP + auth | ⬜ |
+| 2 — Streamable HTTP + auth | ✅ |
 | 3 — Kafka adapter | ⬜ |
 | 4 — JVM runtime adapter | ⬜ |
 | 5 — Internal HTTP API bridge | ⬜ |

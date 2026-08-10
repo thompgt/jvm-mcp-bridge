@@ -32,7 +32,7 @@ is the rest of this repository.
 | `adapter-jdbc/` | database | AST-validated read-only SQL, schema introspection |
 | `adapter-kafka/` | broker | Topics, consumer lag, bounded peek, DLQ triage, gated replay and offset reset |
 | `adapter-jvm/` | runtime | JMX MBeans, memory and GC deltas, grouped thread stacks, Actuator, JFR summaries |
-| `adapter-http/` | internal APIs | OpenAPI 3 spec → generated MCP tools |
+| `adapter-http/` | internal APIs | ⬜ **Not built yet** — phase 5. The module exists as a build file and nothing else; OpenAPI 3 spec → generated MCP tools is the plan, not the state. |
 | `server-app/` | executable | Spring Boot: config, transports, auth, health |
 
 ## What "safe" means here

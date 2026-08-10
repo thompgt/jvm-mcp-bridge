@@ -252,6 +252,8 @@ bridge:
   #       # the same beans that carry the attributes worth reading — so there is no allowlist
   #       # granular enough to make invoking one a considered decision.
   #
+  # Phase 5, not implemented: adapter-http is a build file and nothing else today, so this
+  # block is a sketch of the intended shape rather than configuration the bridge reads.
   # apis:
   #   - name: billing
   #     openapi-url: http://billing.internal/v3/api-docs

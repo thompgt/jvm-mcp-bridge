@@ -40,6 +40,7 @@ public final class KafkaAdapter implements ProbeableBackend, AutoCloseable {
         tools.addAll(TopicTools.create(handle, policy));
         tools.addAll(GroupTools.create(handle, policy));
         tools.add(new PeekTool(handle, policy));
+        tools.add(new DlqSampleTool(handle, policy));
         return List.copyOf(tools);
     }
 

@@ -72,8 +72,12 @@ database, and an unauthenticated request to `/mcp` is refused.
       byte cap, using a unique group id and **never committing offsets**. Assigns rather than
       subscribes, so it never joins a group or triggers a rebalance, and reports `nextOffsets`
       so paging is an explicit read rather than a consumer held open between calls.
-- [ ] **3.5 DLQ triage** — `kafka.dlq_sample` groups a dead-letter topic by error header and
-      returns representative messages per class rather than a raw dump.
+- [x] **3.5 DLQ triage** — `kafka.dlq_sample` groups a dead-letter topic by error header and
+      returns representative messages per class rather than a raw dump. Detects the header
+      convention (Spring Kafka, Spring Cloud Stream, Kafka Connect) and reports which one it
+      grouped on plus every header seen, so a bad grouping is recoverable with `error_header`
+      rather than fatal. Per-occurrence values in the label are normalised, or a free-text
+      error header produces a thousand classes of one — the dump it exists to replace.
 - [ ] **3.6 Write path, gated** — `kafka.produce` and offset reset exist but are refused
       unless write-mode is on *and* the topic is on the write allowlist. Denials are tested.
 

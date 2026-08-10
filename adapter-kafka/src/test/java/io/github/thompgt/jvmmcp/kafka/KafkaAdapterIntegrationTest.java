@@ -7,6 +7,7 @@ import io.github.thompgt.jvmmcp.core.ToolOutcome;
 import io.github.thompgt.jvmmcp.policy.AccessMode;
 import io.github.thompgt.jvmmcp.policy.AuditSink;
 import io.github.thompgt.jvmmcp.policy.PolicyProfile;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
@@ -21,6 +22,7 @@ import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.header.internals.RecordHeader;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.kafka.common.serialization.StringSerializer;
 import org.junit.jupiter.api.AfterAll;
@@ -46,6 +48,8 @@ import org.testcontainers.redpanda.RedpandaContainer;
 class KafkaAdapterIntegrationTest {
 
     private static final String TOPIC = "orders.events";
+    private static final String DLQ_TOPIC = "orders.dlq";
+    private static final String LEGACY_DLQ_TOPIC = "orders.dlq.legacy";
     private static final String OTHER_TOPIC = "internal.secrets";
     private static final String GROUP = "orders-processor";
 
@@ -62,7 +66,10 @@ class KafkaAdapterIntegrationTest {
         admin.put(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, KAFKA.getBootstrapServers());
         try (Admin client = Admin.create(admin)) {
             client.createTopics(List.of(
-                            new NewTopic(TOPIC, 2, (short) 1), new NewTopic(OTHER_TOPIC, 1, (short) 1)))
+                            new NewTopic(TOPIC, 2, (short) 1),
+                            new NewTopic(DLQ_TOPIC, 1, (short) 1),
+                            new NewTopic(LEGACY_DLQ_TOPIC, 1, (short) 1),
+                            new NewTopic(OTHER_TOPIC, 1, (short) 1)))
                     .all()
                     .get();
         }
@@ -79,6 +86,7 @@ class KafkaAdapterIntegrationTest {
                 p.send(new ProducerRecord<>(TOPIC, 1, "k" + i, "message " + i)).get();
             }
             p.send(new ProducerRecord<>(OTHER_TOPIC, "k", "must never reach a model")).get();
+            seedDeadLetters(p);
         }
 
         // A group that consumed some of partition 0 and none of partition 1, then stopped.
@@ -102,6 +110,52 @@ class KafkaAdapterIntegrationTest {
 
         handle = new KafkaBrokerHandle(
                 "orders-kafka", KAFKA.getBootstrapServers(), Duration.ofSeconds(15), Map.of());
+    }
+
+    /**
+     * A dead-letter topic shaped like a real one: a dominant failure, a smaller distinct failure,
+     * and a pile of messages carrying no error header at all.
+     *
+     * <p>The unclassified pile is deliberately larger than the second real failure. Ordering by
+     * count alone would put "we could not tell" at the top and bury the NullPointerException,
+     * which is the finding. The failure detail carries a different sku on every message, so
+     * grouping on the detail header has a wrong answer available: fourteen classes of one.
+     */
+    private static void seedDeadLetters(KafkaProducer<String, String> p) throws Exception {
+        for (int i = 0; i < 7; i++) {
+            p.send(dead(DLQ_TOPIC, "order-" + i, "com.example.OutOfStockException", "sku " + (88_214 + i)
+                    + " unavailable"))
+                    .get();
+        }
+        for (int i = 0; i < 3; i++) {
+            p.send(dead(DLQ_TOPIC, "order-npe-" + i, "java.lang.NullPointerException", "shippingAddress is null"))
+                    .get();
+        }
+        for (int i = 0; i < 4; i++) {
+            p.send(new ProducerRecord<>(DLQ_TOPIC, "order-bare-" + i, "{\"orderId\":" + i + "}"))
+                    .get();
+        }
+        for (int i = 0; i < 3; i++) {
+            p.send(new ProducerRecord<>(
+                            LEGACY_DLQ_TOPIC,
+                            null,
+                            "legacy-" + i,
+                            "{\"orderId\":" + i + "}",
+                            List.of(new RecordHeader("reason", "TIMEOUT".getBytes(StandardCharsets.UTF_8)))))
+                    .get();
+        }
+    }
+
+    private static ProducerRecord<String, String> dead(String topic, String key, String fqcn, String detail) {
+        return new ProducerRecord<>(
+                topic,
+                null,
+                key,
+                "{\"orderId\":\"" + key + "\"}",
+                List.of(
+                        new RecordHeader("x-exception-fqcn", fqcn.getBytes(StandardCharsets.UTF_8)),
+                        new RecordHeader("x-exception-message", detail.getBytes(StandardCharsets.UTF_8)),
+                        new RecordHeader("x-original-topic", TOPIC.getBytes(StandardCharsets.UTF_8))));
     }
 
     @AfterAll
@@ -308,6 +362,116 @@ class KafkaAdapterIntegrationTest {
     @DisplayName("peek is refused on a topic off the allowlist")
     void peekRespectsTheAllowlist() {
         ToolOutcome outcome = call("kafka.peek", Map.of("topic", OTHER_TOPIC));
+
+        assertThat(outcome.error()).isTrue();
+        assertThat(outcome.summary()).contains(OTHER_TOPIC).contains("orders.*");
+        assertThat(String.valueOf(outcome.structured())).doesNotContain("must never reach a model");
+    }
+
+    @Test
+    @DisplayName("dlq_sample groups by exception class, most frequent first, unclassified last")
+    void dlqSampleGroupsByErrorClass() {
+        ToolOutcome outcome = call("kafka.dlq_sample", Map.of("topic", DLQ_TOPIC));
+
+        assertThat(outcome.error()).isFalse();
+        Map<?, ?> structured = (Map<?, ?>) outcome.structured();
+        assertThat(structured.get("scanned")).isEqualTo(14);
+        assertThat(structured.get("errorHeader")).isEqualTo("x-exception-fqcn");
+
+        List<?> classes = (List<?>) structured.get("classes");
+        assertThat(classes).hasSize(3);
+
+        Map<?, ?> worst = (Map<?, ?>) classes.get(0);
+        assertThat(worst.get("error")).isEqualTo("com.example.OutOfStockException");
+        assertThat(worst.get("count")).isEqualTo(7);
+        assertThat(worst.get("sharePercent")).isEqualTo(50);
+        // Evidence, not a dump: the class holds seven messages and returns two of them.
+        assertThat((List<?>) worst.get("samples")).hasSize(2);
+        assertThat(worst.get("detail")).asString().startsWith("sku ");
+        assertThat(worst.get("partitions")).isEqualTo(List.of("0@0-6"));
+
+        assertThat(((Map<?, ?>) classes.get(1)).get("error")).isEqualTo("java.lang.NullPointerException");
+        assertThat(((Map<?, ?>) classes.get(1)).get("count")).isEqualTo(3);
+
+        // Four unclassified against three NPEs: count alone would rank this second, and it is
+        // last because "we could not tell" is not a finding.
+        Map<?, ?> unclassified = (Map<?, ?>) classes.get(2);
+        assertThat(unclassified.get("error")).isEqualTo("(no x-exception-fqcn header)");
+        assertThat(unclassified.get("count")).isEqualTo(4);
+    }
+
+    @Test
+    @DisplayName("dlq_sample reads the whole window and commits nothing")
+    void dlqSampleNeverCommits() throws Exception {
+        ToolOutcome outcome = call("kafka.dlq_sample", Map.of("topic", DLQ_TOPIC));
+
+        assertThat(outcome.error()).isFalse();
+        // 14 messages under a 25 cap: complete, so the counts describe the topic and the summary
+        // must not hedge them as a sample.
+        assertThat(((Map<?, ?>) outcome.structured()).get("truncated")).isEqualTo(false);
+        assertThat(outcome.summary()).contains("complete for it").contains("No offsets were committed");
+
+        Properties props = new Properties();
+        props.put(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, KAFKA.getBootstrapServers());
+        try (Admin client = Admin.create(props)) {
+            assertThat(client.listConsumerGroups().valid().get())
+                    .noneMatch(g -> g.groupId().startsWith(KafkaBrokerHandle.PEEK_GROUP_PREFIX));
+        }
+    }
+
+    @Test
+    @DisplayName("a per-occurrence value in the error string collapses instead of making a class each")
+    void dlqSampleNormalisesVaryingDetail() {
+        ToolOutcome outcome =
+                call("kafka.dlq_sample", Map.of("topic", DLQ_TOPIC, "error_header", "x-exception-message"));
+
+        assertThat(outcome.error()).isFalse();
+        List<?> classes = (List<?>) ((Map<?, ?>) outcome.structured()).get("classes");
+
+        // Seven distinct skus, one failure. Grouping on the raw string would produce seven
+        // classes of one, which is the raw dump this tool exists to replace.
+        Map<?, ?> worst = (Map<?, ?>) classes.get(0);
+        assertThat(worst.get("error")).isEqualTo("sku <n> unavailable");
+        assertThat(worst.get("count")).isEqualTo(7);
+    }
+
+    @Test
+    @DisplayName("a truncated scan says the counts are a window, and where to scan on from")
+    void dlqSampleReportsItsWindow() {
+        ToolOutcome outcome = call("kafka.dlq_sample", Map.of("topic", DLQ_TOPIC, "from_offset", 0, "scan_messages", 5));
+
+        assertThat(outcome.error()).isFalse();
+        Map<?, ?> structured = (Map<?, ?>) outcome.structured();
+        assertThat(structured.get("scanned")).isEqualTo(5);
+        assertThat(structured.get("truncationReason")).isEqualTo("messages");
+        assertThat(((Map<?, ?>) structured.get("nextOffsets")).get("0")).isEqualTo(5L);
+        assertThat(outcome.summary()).contains("describe a window").contains("Scan further back with from_offset");
+    }
+
+    @Test
+    @DisplayName("an unrecognised header convention names the headers that are there")
+    void dlqSampleSaysWhatItCouldNotGroupOn() {
+        ToolOutcome outcome = call("kafka.dlq_sample", Map.of("topic", LEGACY_DLQ_TOPIC));
+
+        assertThat(outcome.error()).isFalse();
+        Map<?, ?> structured = (Map<?, ?>) outcome.structured();
+        assertThat(structured.get("errorHeader")).isEqualTo("");
+        assertThat(structured.get("headerNames")).isEqualTo(List.of("reason"));
+
+        // Model-actionable: the recovery is a named parameter and a header name it now has.
+        assertThat(outcome.summary()).contains("Headers seen: reason").contains("error_header");
+
+        ToolOutcome regrouped =
+                call("kafka.dlq_sample", Map.of("topic", LEGACY_DLQ_TOPIC, "error_header", "reason"));
+        List<?> classes = (List<?>) ((Map<?, ?>) regrouped.structured()).get("classes");
+        assertThat(((Map<?, ?>) classes.get(0)).get("error")).isEqualTo("TIMEOUT");
+        assertThat(((Map<?, ?>) classes.get(0)).get("count")).isEqualTo(3);
+    }
+
+    @Test
+    @DisplayName("dlq_sample is refused on a topic off the allowlist")
+    void dlqSampleRespectsTheAllowlist() {
+        ToolOutcome outcome = call("kafka.dlq_sample", Map.of("topic", OTHER_TOPIC));
 
         assertThat(outcome.error()).isTrue();
         assertThat(outcome.summary()).contains(OTHER_TOPIC).contains("orders.*");

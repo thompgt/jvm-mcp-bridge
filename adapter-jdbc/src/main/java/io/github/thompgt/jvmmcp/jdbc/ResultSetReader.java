@@ -29,20 +29,37 @@ final class ResultSetReader {
 
     private ResultSetReader() {}
 
-    static Page read(ResultSet rs, String primaryTable, int maxRows, long maxBytes, Redactor redactor)
+    /**
+     * @param redactUnnamedColumns what to do with a column the driver gives no underlying name
+     *     for — a computed expression. True means redact it. {@code SqlQueryTool} sets this when
+     *     the statement computes over a column that policy withholds, because at that point the
+     *     value on the wire is derived from a secret and the label is whatever the caller chose.
+     */
+    static Page read(
+            ResultSet rs,
+            String primaryTable,
+            boolean redactUnnamedColumns,
+            int maxRows,
+            long maxBytes,
+            Redactor redactor)
             throws SQLException {
         ResultSetMetaData meta = rs.getMetaData();
         int columnCount = meta.getColumnCount();
 
         List<String> columns = new ArrayList<>(columnCount);
         String[] tableOf = new String[columnCount];
+        boolean[] redactOf = new boolean[columnCount];
         for (int i = 1; i <= columnCount; i++) {
-            columns.add(meta.getColumnLabel(i));
+            String label = meta.getColumnLabel(i);
+            columns.add(label);
             // Prefer the table the driver reports for the column; several drivers leave it
             // blank for computed columns and joins, so fall back to the statement's primary
             // table. Redaction has to err towards redacting, not towards leaking.
             String table = meta.getTableName(i);
-            tableOf[i - 1] = (table == null || table.isBlank()) ? primaryTable : table;
+            boolean fromNamedTable = table != null && !table.isBlank();
+            tableOf[i - 1] = fromNamedTable ? table : primaryTable;
+            redactOf[i - 1] = shouldRedact(
+                    redactor, tableOf[i - 1], fromNamedTable, meta.getColumnName(i), label, redactUnnamedColumns);
         }
 
         List<Map<String, Object>> rows = new ArrayList<>();
@@ -60,7 +77,7 @@ final class ResultSetReader {
             long rowBytes = 0;
             for (int i = 1; i <= columnCount; i++) {
                 String column = columns.get(i - 1);
-                Object value = redactor.apply(tableOf[i - 1], column, readValue(rs, meta, i));
+                Object value = redactOf[i - 1] ? Redactor.MARKER : readValue(rs, meta, i);
                 row.put(column, value);
                 rowBytes += estimateBytes(value);
             }
@@ -77,6 +94,40 @@ final class ResultSetReader {
         }
 
         return new Page(List.copyOf(columns), List.copyOf(rows), truncated, reason);
+    }
+
+    /**
+     * Decides redaction for one result column, before any row is read.
+     *
+     * <p>The label is the alias, not the column: for {@code SELECT email AS x} a driver reports
+     * label {@code x} and name {@code email}. Deciding on the label is a one-word bypass of
+     * every redaction rule, so the underlying name decides, and the label is only consulted as
+     * an additional reason to redact — never as a reason not to.
+     *
+     * <p>A column only counts as a real table column when the driver names <em>both</em> the
+     * table and the column for it. Anything else is a computed item, and drivers disagree about
+     * what to report for one — H2 echoes the alias back as the column name, so "the name is
+     * missing" is not a test that can be relied on. Computed items fail closed on
+     * {@code redactUnnamedColumns}, which the caller derives from the parse tree.
+     */
+    private static boolean shouldRedact(
+            Redactor redactor,
+            String table,
+            boolean fromNamedTable,
+            String columnName,
+            String label,
+            boolean redactUnnamedColumns) {
+        if (redactor.isEmpty()) {
+            return false;
+        }
+        boolean named = columnName != null && !columnName.isBlank();
+        if (named && redactor.isRedacted(table, columnName)) {
+            return true;
+        }
+        if (redactUnnamedColumns && !(named && fromNamedTable)) {
+            return true;
+        }
+        return redactor.isRedacted(table, label);
     }
 
     /**

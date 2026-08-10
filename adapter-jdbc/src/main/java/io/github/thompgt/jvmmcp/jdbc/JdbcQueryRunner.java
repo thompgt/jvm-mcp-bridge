@@ -27,6 +27,7 @@ final class JdbcQueryRunner {
             JdbcDataSourceHandle handle,
             String sql,
             String primaryTable,
+            boolean redactUnnamedColumns,
             EffectiveLimits limits,
             Redactor redactor)
             throws SQLException {
@@ -36,7 +37,12 @@ final class JdbcQueryRunner {
                 applyStatementBounds(statement, handle.dialect(), limits);
                 try (ResultSet rs = statement.executeQuery(sql)) {
                     return ResultSetReader.read(
-                            rs, primaryTable, limits.maxRows(), limits.maxResultBytes(), redactor);
+                            rs,
+                            primaryTable,
+                            redactUnnamedColumns,
+                            limits.maxRows(),
+                            limits.maxResultBytes(),
+                            redactor);
                 }
             }
         }

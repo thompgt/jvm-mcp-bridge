@@ -15,6 +15,9 @@ junit = "5.12.2"
 assertj = "3.27.3"
 testcontainers = "1.21.3"
 postgresql = "42.7.7"
+# H2 in-memory, tests only: it gives the redaction tests a real driver and real ResultSet
+# metadata without a Docker daemon, so the security cases run in the fast suite.
+h2 = "2.3.232"
 
 [libraries]
 # --- MCP ---
@@ -30,6 +33,7 @@ logback-classic = { module = "ch.qos.logback:logback-classic", version.ref = "lo
 jsqlparser = { module = "com.github.jsqlparser:jsqlparser", version.ref = "jsqlparser" }
 hikaricp = { module = "com.zaxxer:HikariCP", version.ref = "hikari" }
 postgresql = { module = "org.postgresql:postgresql", version.ref = "postgresql" }
+h2 = { module = "com.h2database:h2", version.ref = "h2" }
 
 # --- adapter-kafka ---
 kafka-clients = { module = "org.apache.kafka:kafka-clients", version.ref = "kafkaClients" }

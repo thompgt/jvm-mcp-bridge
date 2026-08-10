@@ -57,8 +57,14 @@ public final class SqlGuard {
      *
      * @param tables lower-cased table names the statement reads, with CTE aliases removed —
      *     these are what the policy engine is asked about
+     * @param expressionIdentifiers lower-cased identifiers appearing inside select items that
+     *     are <em>not</em> a bare column reference — {@code lower(email)} contributes
+     *     {@code lower} and {@code email}. A driver reports no column name for such an item, so
+     *     redaction cannot be decided from result-set metadata alone; these are what it falls
+     *     back to. Deliberately over-inclusive: over-redacting a computed column is a nuisance,
+     *     under-redacting one is the leak.
      */
-    public record ReadStatement(Statement parsed, List<String> tables) {}
+    public record ReadStatement(Statement parsed, List<String> tables, List<String> expressionIdentifiers) {}
 
     /**
      * Parses and validates {@code sql}, returning the tables it reads.
@@ -107,7 +113,54 @@ public final class SqlGuard {
         // because its CTE happens not to be in the allowlist.
         cteNames(select).forEach(tables::remove);
 
-        return new ReadStatement(statement, List.copyOf(tables));
+        return new ReadStatement(statement, List.copyOf(tables), List.copyOf(expressionIdentifiers(select)));
+    }
+
+    /** Identifier-shaped tokens, for pulling column names out of an expression's text. */
+    private static final java.util.regex.Pattern IDENTIFIER =
+            java.util.regex.Pattern.compile("[A-Za-z_][A-Za-z0-9_$]*");
+
+    /**
+     * Collects the identifiers used inside computed select items.
+     *
+     * <p>{@code SELECT lower(email) AS x FROM customers} defeats metadata-based redaction
+     * completely: the driver reports no underlying column for a computed item, and the label is
+     * whatever the caller chose to call it. Recovering the identifiers from the parse tree is
+     * the only place the word {@code email} still exists.
+     *
+     * <p>Read off {@code toString()} rather than through a typed visitor on purpose — a visitor
+     * that misses an expression node fails <em>open</em>, and new node types arrive with every
+     * parser release. Text tokens cannot miss one.
+     */
+    private static Set<String> expressionIdentifiers(Select select) {
+        Set<String> identifiers = new LinkedHashSet<>();
+        collectExpressionIdentifiers(select, identifiers);
+        return identifiers;
+    }
+
+    private static void collectExpressionIdentifiers(Select select, Set<String> into) {
+        if (select instanceof PlainSelect plain) {
+            List<net.sf.jsqlparser.statement.select.SelectItem<?>> items = plain.getSelectItems();
+            if (items == null) {
+                return;
+            }
+            for (net.sf.jsqlparser.statement.select.SelectItem<?> item : items) {
+                net.sf.jsqlparser.expression.Expression expression = item.getExpression();
+                if (expression == null || expression instanceof net.sf.jsqlparser.schema.Column) {
+                    // A bare column: the driver will report its real name, which is a better
+                    // answer than anything guessed from the text.
+                    continue;
+                }
+                java.util.regex.Matcher m = IDENTIFIER.matcher(expression.toString());
+                while (m.find()) {
+                    into.add(m.group().toLowerCase(Locale.ROOT));
+                }
+            }
+        } else if (select instanceof ParenthesedSelect parenthesed) {
+            collectExpressionIdentifiers(parenthesed.getSelect(), into);
+        } else if (select instanceof SetOperationList setOperations) {
+            setOperations.getSelects().forEach(s -> collectExpressionIdentifiers(s, into));
+        }
     }
 
     private static Statement parseExactlyOne(String sql) {

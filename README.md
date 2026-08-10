@@ -48,7 +48,9 @@ server, which enforced its checks in one place and had them bypassed:
    name. The allowlist is never matched against the raw query string — that is the hole.
 3. **Connection-level enforcement.** `setReadOnly(true)` plus a statement timeout, so a
    permitted query still cannot run forever.
-4. **Result bounds.** Row cap, byte cap, and column redaction by pattern.
+4. **Result bounds.** Row cap, byte cap, and column redaction by pattern. Redaction is decided
+   from the underlying column, not the label, so `SELECT email AS x` is still withheld; a
+   computed column over a redacted one is withheld too.
 
 Writes need *two* independent opt-ins — write mode enabled for that backend **and** the
 specific table or topic on a separate write allowlist. There is no wildcard write allowlist;

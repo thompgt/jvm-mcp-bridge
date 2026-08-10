@@ -119,9 +119,15 @@ public final class SqlQueryTool implements BridgeTool {
         // profile exists to withhold.
         Redactor redactor = new Redactor(policy.effectiveProfile().redactionPatterns());
 
+        // A computed select item — `lower(email)`, `email || ''` — arrives at the driver with no
+        // underlying column name, so result-set metadata cannot tell it from `count(*)`. If any
+        // identifier the statement computes over is one policy withholds, every unnamed column
+        // in the result is treated as derived from it and redacted.
+        boolean redactUnnamedColumns = computesOverRedactedColumn(read, redactor);
+
         return policy.guardRead(toolName, read.tables(), requestedRows, limits -> {
             ResultSetReader.Page page =
-                    JdbcQueryRunner.runQuery(handle, sql, primaryTable, limits, redactor);
+                    JdbcQueryRunner.runQuery(handle, sql, primaryTable, redactUnnamedColumns, limits, redactor);
 
             Map<String, Object> structured = new LinkedHashMap<>();
             structured.put("columns", page.columns());
@@ -132,6 +138,30 @@ public final class SqlQueryTool implements BridgeTool {
 
             return ToolOutcome.success(structured, summarise(page, redactor), page.rows().size());
         });
+    }
+
+    /**
+     * Whether the statement computes over a column the caller's profile withholds.
+     *
+     * <p>Checked against every table the statement reads rather than the one the column was
+     * declared in, and against the unqualified form too so a {@code *.email} rule applies. Both
+     * widen what is redacted, which is the direction this check is allowed to be wrong in.
+     */
+    static boolean computesOverRedactedColumn(SqlGuard.ReadStatement read, Redactor redactor) {
+        if (redactor.isEmpty()) {
+            return false;
+        }
+        for (String identifier : read.expressionIdentifiers()) {
+            if (redactor.isRedacted("", identifier)) {
+                return true;
+            }
+            for (String table : read.tables()) {
+                if (redactor.isRedacted(table, identifier)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private String summarise(ResultSetReader.Page page, Redactor redactor) {

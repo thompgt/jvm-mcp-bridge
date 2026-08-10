@@ -170,6 +170,13 @@ to close.
 at HTTP 200 and is excluded from liveness and readiness: a dead broker should not restart the
 process or stop the database questions that still work.
 
+Under `transport: http` Actuator shares the port with `/mcp`, so it sits behind the same
+authentication filter: `/actuator/health` names every backend and its version, which is a map
+of the estate. `/actuator/health/liveness` and `/actuator/health/readiness` are the only
+exceptions — a kubelet has no credential to present, and both answer with a status word and
+nothing else. Where the deployment can carry it, `management.server.port` on a port the
+outside cannot reach is still worth doing on top.
+
 ## Build
 
 ```bash

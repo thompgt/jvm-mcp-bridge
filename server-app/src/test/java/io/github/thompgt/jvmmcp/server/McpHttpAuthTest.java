@@ -129,6 +129,43 @@ class McpHttpAuthTest {
         assertThat(audit).doesNotContain("\"principal\":\"local\"");
     }
 
+    @Test
+    @DisplayName("actuator health needs the same credential as /mcp")
+    void healthDetailsAreNotReadableWithoutACredential() throws IOException, InterruptedException {
+        HttpResponse<String> anonymous = get("/actuator/health", null);
+
+        // show-details: always names every backend and its version. On the same port as /mcp
+        // that is a map of the estate handed out to anyone who can reach it.
+        assertThat(anonymous.statusCode()).isEqualTo(401);
+        assertThat(anonymous.body()).doesNotContain("orders-db");
+
+        HttpResponse<String> authenticated = get("/actuator/health", "Bearer " + ANALYST_KEY);
+        assertThat(authenticated.statusCode()).isEqualTo(200);
+        assertThat(authenticated.body()).contains("orders-db");
+    }
+
+    @Test
+    @DisplayName("orchestrator probes stay open, because a kubelet has no credential")
+    void livenessAndReadinessAreStillAnonymous() throws IOException, InterruptedException {
+        // A status word and nothing else, which is why these are the only exceptions.
+        HttpResponse<String> liveness = get("/actuator/health/liveness", null);
+        HttpResponse<String> readiness = get("/actuator/health/readiness", null);
+
+        assertThat(liveness.statusCode()).isEqualTo(200);
+        assertThat(readiness.statusCode()).isEqualTo(200);
+        assertThat(liveness.body()).doesNotContain("orders-db");
+        assertThat(readiness.body()).doesNotContain("orders-db");
+    }
+
+    private HttpResponse<String> get(String path, String authorization) throws IOException, InterruptedException {
+        HttpRequest.Builder request =
+                HttpRequest.newBuilder(URI.create("http://localhost:" + port + path)).GET();
+        if (authorization != null) {
+            request.header("Authorization", authorization);
+        }
+        return http.send(request.build(), HttpResponse.BodyHandlers.ofString());
+    }
+
     private HttpResponse<String> post(String authorization) throws IOException, InterruptedException {
         HttpRequest.Builder request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/mcp"))
                 .header("Content-Type", "application/json")

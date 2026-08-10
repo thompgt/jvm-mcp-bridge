@@ -24,6 +24,7 @@ public final class JvmAdapter implements ProbeableBackend, AutoCloseable {
 
     private final JvmTargetHandle handle;
     private final PolicyEngine policy;
+    private final List<BridgeTool> tools;
 
     public JvmAdapter(JvmTargetHandle handle, PolicyProfile profile, AuditSink audit) {
         this(handle, PolicyProfiles.of(profile), audit);
@@ -32,11 +33,24 @@ public final class JvmAdapter implements ProbeableBackend, AutoCloseable {
     public JvmAdapter(JvmTargetHandle handle, PolicyProfiles profiles, AuditSink audit) {
         this.handle = handle;
         this.policy = new PolicyEngine(profiles, audit);
+
+        List<BridgeTool> built = new ArrayList<>(MBeanTools.create(handle, policy));
+        built.addAll(MemoryTools.create(handle, policy));
+        this.tools = List.copyOf(built);
     }
 
+    /**
+     * The tools, built once.
+     *
+     * <p>Built in the constructor rather than per call because {@code jvm.memory} keeps the
+     * previous reading in order to report a delta against it. A {@code tools()} that returned
+     * fresh instances would hand a second caller a tool that had never seen the first, so every
+     * call would look like a first call and no delta would ever be reported — a bug that is
+     * invisible in a server that assembles its registry once at startup and appears the moment
+     * anything else asks twice.
+     */
     public List<BridgeTool> tools() {
-        List<BridgeTool> tools = new ArrayList<>(MBeanTools.create(handle, policy));
-        return List.copyOf(tools);
+        return tools;
     }
 
     public PolicyEngine policy() {

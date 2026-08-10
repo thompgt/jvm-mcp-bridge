@@ -81,10 +81,10 @@ class MBeanToolsTest {
     }
 
     @Test
-    void bothToolsAreRegistered() {
+    void theMBeanToolsAreRegistered() {
         assertThat(adapter(policy().build()).tools())
                 .extracting(t -> t.descriptor().name())
-                .containsExactlyInAnyOrder("jvm.mbeans", "jvm.attribute");
+                .contains("jvm.mbeans", "jvm.attribute");
     }
 
     @Test

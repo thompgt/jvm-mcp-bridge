@@ -103,8 +103,16 @@ partition is behind and sample the messages stuck there.
       that does not say so is a wrong one. Redaction matches keys *inside* those values, since
       a JVM's credentials are never an attribute called Password — they are a key in
       `SystemProperties`. Alone among the backends its redaction default is non-empty.
-- [ ] **4.2 Memory and GC** — `jvm.memory` from the platform MXBeans: heap/non-heap, pool
-      breakdown, GC counts and times, with deltas rather than raw counters.
+- [x] **4.2 Memory and GC** — `jvm.memory` from the platform MXBeans: heap/non-heap, pool
+      breakdown, GC counts and times, with deltas rather than raw counters. A cumulative
+      counter read once says how old the JVM is, not how it is: 41 seconds of GC is
+      unremarkable over a fortnight and an outage over four minutes, and the raw value does
+      not distinguish them. So every counter carries a delta and the interval it covers,
+      either since this bridge last looked or across an in-call `sample_seconds` window
+      clamped to the call timeout. The tool also corrects which "used" to believe — pool
+      usage counts uncollected garbage, so a healthy young generation reads as nearly full;
+      the reported figure is usage after the pool's last collection, which is the only number
+      here whose growth is the shape of a leak.
 - [ ] **4.3 Threads** — `jvm.threads` with state histogram, top stacks, and explicit
       deadlock detection via `findDeadlockedThreads`.
 - [ ] **4.4 Actuator client** — `jvm.actuator` reads health, env and metrics from a Spring

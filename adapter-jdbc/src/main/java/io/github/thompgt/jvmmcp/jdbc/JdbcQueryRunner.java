@@ -26,7 +26,7 @@ final class JdbcQueryRunner {
     static ResultSetReader.Page runQuery(
             JdbcDataSourceHandle handle,
             String sql,
-            String primaryTable,
+            List<String> tables,
             boolean redactUnnamedColumns,
             EffectiveLimits limits,
             Redactor redactor)
@@ -38,7 +38,7 @@ final class JdbcQueryRunner {
                 try (ResultSet rs = statement.executeQuery(sql)) {
                     return ResultSetReader.read(
                             rs,
-                            primaryTable,
+                            tables,
                             redactUnnamedColumns,
                             limits.maxRows(),
                             limits.maxResultBytes(),

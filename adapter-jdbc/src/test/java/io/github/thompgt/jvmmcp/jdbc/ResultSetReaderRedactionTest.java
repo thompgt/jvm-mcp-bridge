@@ -50,10 +50,9 @@ class ResultSetReaderRedactionTest {
     private static Map<String, Object> firstRow(String sql, Redactor redactor) throws SQLException {
         SqlGuard.ReadStatement read = SqlGuard.requireReadOnly(sql);
         boolean unnamed = SqlQueryTool.computesOverRedactedColumn(read, redactor);
-        String primaryTable = read.tables().isEmpty() ? "" : read.tables().get(0);
         try (Statement s = connection.createStatement();
                 ResultSet rs = s.executeQuery(sql)) {
-            ResultSetReader.Page page = ResultSetReader.read(rs, primaryTable, unnamed, 10, 1_000_000L, redactor);
+            ResultSetReader.Page page = ResultSetReader.read(rs, read.tables(), unnamed, 10, 1_000_000L, redactor);
             assertThat(page.rows()).isNotEmpty();
             // Keys folded because H2 reports labels upper-cased; the assertions are about the
             // values, not about which case a particular driver echoes back.
@@ -107,6 +106,35 @@ class ResultSetReaderRedactionTest {
         // nothing and teaches the model the tool is broken.
         assertThat(firstRow("SELECT count(*) AS n FROM customers", EMAIL))
                 .containsEntry("n", 1L);
+    }
+
+    @Test
+    @DisplayName("a table-scoped rule fires on a join even when it is not the leading table")
+    void tableScopedRedactionAppliesToTheJoinedTableNotJustTheFirst() throws SQLException {
+        // The fallback used to be the statement's *first* resolved table, so a rule written for
+        // the joined-in table was evaluated against `customers` and quietly matched nothing.
+        Redactor totals = new Redactor(List.of("orders.total_cents"));
+        Map<String, Object> row = firstRow(
+                "SELECT c.name, o.total_cents FROM customers c JOIN orders o ON o.customer_id = c.id", totals);
+
+        assertThat(row).containsEntry("name", "Ada Lovelace");
+        assertThat(row).containsEntry("total_cents", Redactor.MARKER);
+    }
+
+    @Test
+    @DisplayName("a table-scoped rule fires through a derived table, where drivers name no table")
+    void tableScopedRedactionSurvivesADerivedTable() throws SQLException {
+        // A subselect is where metadata gives up: there is no base table to report for the
+        // column. Every table the statement reads is then a candidate, because the alternative
+        // is picking one and being wrong.
+        Redactor totals = new Redactor(List.of("orders.total_cents"));
+        Map<String, Object> row = firstRow(
+                "SELECT c.name, o.total_cents FROM customers c"
+                        + " JOIN (SELECT customer_id, total_cents FROM orders) o ON o.customer_id = c.id",
+                totals);
+
+        assertThat(row).containsEntry("total_cents", Redactor.MARKER);
+        assertThat(row.values()).doesNotContain(500);
     }
 
     @Test

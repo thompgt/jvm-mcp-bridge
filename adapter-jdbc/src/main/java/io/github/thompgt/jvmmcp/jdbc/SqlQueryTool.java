@@ -112,8 +112,6 @@ public final class SqlQueryTool implements BridgeTool {
             return ToolOutcome.denied(e.getMessage(), Map.of("rule", e.rule(), "tool", toolName));
         }
 
-        String primaryTable = read.tables().isEmpty() ? "" : read.tables().get(0);
-
         // Built per call, not once: a narrower profile redacts *more*, and a redactor cached
         // from the backend default would quietly hand a restricted caller the columns their
         // profile exists to withhold.
@@ -127,7 +125,7 @@ public final class SqlQueryTool implements BridgeTool {
 
         return policy.guardRead(toolName, read.tables(), requestedRows, limits -> {
             ResultSetReader.Page page =
-                    JdbcQueryRunner.runQuery(handle, sql, primaryTable, redactUnnamedColumns, limits, redactor);
+                    JdbcQueryRunner.runQuery(handle, sql, read.tables(), redactUnnamedColumns, limits, redactor);
 
             Map<String, Object> structured = new LinkedHashMap<>();
             structured.put("columns", page.columns());

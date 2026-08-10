@@ -30,6 +30,9 @@ final class ResultSetReader {
     private ResultSetReader() {}
 
     /**
+     * @param tables every table the statement reads, as {@link SqlGuard} resolved them. Used
+     *     when the driver reports no table for a column: the answer then is <em>all</em> of
+     *     them, not the first of them.
      * @param redactUnnamedColumns what to do with a column the driver gives no underlying name
      *     for — a computed expression. True means redact it. {@code SqlQueryTool} sets this when
      *     the statement computes over a column that policy withholds, because at that point the
@@ -37,7 +40,7 @@ final class ResultSetReader {
      */
     static Page read(
             ResultSet rs,
-            String primaryTable,
+            List<String> tables,
             boolean redactUnnamedColumns,
             int maxRows,
             long maxBytes,
@@ -47,19 +50,28 @@ final class ResultSetReader {
         int columnCount = meta.getColumnCount();
 
         List<String> columns = new ArrayList<>(columnCount);
-        String[] tableOf = new String[columnCount];
         boolean[] redactOf = new boolean[columnCount];
         for (int i = 1; i <= columnCount; i++) {
             String label = meta.getColumnLabel(i);
             columns.add(label);
-            // Prefer the table the driver reports for the column; several drivers leave it
-            // blank for computed columns and joins, so fall back to the statement's primary
-            // table. Redaction has to err towards redacting, not towards leaking.
-            String table = meta.getTableName(i);
-            boolean fromNamedTable = table != null && !table.isBlank();
-            tableOf[i - 1] = fromNamedTable ? table : primaryTable;
+            // The table the driver reports for the column, when it reports one. Several drivers
+            // leave it blank for computed columns and for joins, and the fallback used to be
+            // the statement's *first* table — so on `customers JOIN accounts` a rule written
+            // `accounts.secret` was evaluated against `customers` and matched nothing. When the
+            // driver will not say which table a column came from, every table the statement
+            // touches is a candidate. Redaction has to err towards redacting, not towards
+            // leaking.
+            String driverTable = meta.getTableName(i);
+            boolean fromNamedTable = driverTable != null && !driverTable.isBlank();
+            // Only believe the driver's table when it is a table this statement actually reads.
+            // Through a derived table H2 reports the subquery's *alias* — `o`, not `orders` —
+            // and an alias matches no rule an operator could have written, so trusting it would
+            // silently switch redaction off for exactly the queries that hide their source.
+            List<String> candidates = fromNamedTable && isResolvedTable(tables, driverTable)
+                    ? List.of(driverTable)
+                    : tables;
             redactOf[i - 1] = shouldRedact(
-                    redactor, tableOf[i - 1], fromNamedTable, meta.getColumnName(i), label, redactUnnamedColumns);
+                    redactor, candidates, fromNamedTable, meta.getColumnName(i), label, redactUnnamedColumns);
         }
 
         List<Map<String, Object>> rows = new ArrayList<>();
@@ -112,7 +124,7 @@ final class ResultSetReader {
      */
     private static boolean shouldRedact(
             Redactor redactor,
-            String table,
+            List<String> candidateTables,
             boolean fromNamedTable,
             String columnName,
             String label,
@@ -121,13 +133,39 @@ final class ResultSetReader {
             return false;
         }
         boolean named = columnName != null && !columnName.isBlank();
-        if (named && redactor.isRedacted(table, columnName)) {
+        if (named && matchesAnyTable(redactor, candidateTables, columnName)) {
             return true;
         }
         if (redactUnnamedColumns && !(named && fromNamedTable)) {
             return true;
         }
-        return redactor.isRedacted(table, label);
+        return matchesAnyTable(redactor, candidateTables, label);
+    }
+
+    /** Whether the driver's table name is one of the names {@link SqlGuard} resolved. */
+    private static boolean isResolvedTable(List<String> tables, String driverTable) {
+        String name = driverTable.toLowerCase(java.util.Locale.ROOT);
+        for (String table : tables) {
+            // Qualified either side: `orders` answers for `public.orders` and the reverse.
+            if (table.equals(name) || table.endsWith("." + name) || name.endsWith("." + table)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean matchesAnyTable(Redactor redactor, List<String> candidateTables, String column) {
+        if (candidateTables.isEmpty()) {
+            // No table resolved at all — `SELECT now()`. A rule written for any table
+            // (`*.email`) still has to be able to fire, so ask with an empty table name.
+            return redactor.isRedacted("", column);
+        }
+        for (String table : candidateTables) {
+            if (redactor.isRedacted(table, column)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

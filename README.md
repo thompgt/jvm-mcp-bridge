@@ -61,7 +61,9 @@ specific table or topic on a separate write allowlist. There is no wildcard writ
 Every call, allowed or denied, is written to a structured audit log with the rule that fired.
 Denials are phrased so the *model* can recover from them — `table "orders" is not in the
 allowlist; visible tables are: customers, order_items` beats a stack trace, and stops the
-model retrying blindly.
+model retrying blindly. The log rotates itself at `bridge.audit.max-size`, keeping
+`bridge.audit.max-history` generations — an external rotator cannot do it, because the sink
+holds one appending handle for the life of the process.
 
 ## Quickstart
 

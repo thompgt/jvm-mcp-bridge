@@ -1,6 +1,7 @@
 package io.github.thompgt.jvmmcp.server;
 
 import io.github.thompgt.jvmmcp.policy.AccessMode;
+import io.github.thompgt.jvmmcp.policy.AuditSink;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -45,12 +46,40 @@ public class BridgeProperties {
         /** When set, records go to this file as JSON lines. Otherwise to the application log. */
         private String file;
 
+        /**
+         * Size at which the audit file is rolled aside.
+         *
+         * <p>The sink rotates itself because it cannot be rotated from outside: it holds one
+         * appending handle for the life of the process, which on Linux keeps writing to a
+         * renamed inode and on Windows blocks the rename altogether.
+         */
+        private DataSize maxSize = DataSize.ofBytes(AuditSink.FileAuditSink.DEFAULT_MAX_BYTES);
+
+        /** Rolled generations kept beside the live file. The oldest is deleted. */
+        private int maxHistory = AuditSink.FileAuditSink.DEFAULT_KEEP;
+
         public String getFile() {
             return file;
         }
 
         public void setFile(String file) {
             this.file = file;
+        }
+
+        public DataSize getMaxSize() {
+            return maxSize;
+        }
+
+        public void setMaxSize(DataSize maxSize) {
+            this.maxSize = maxSize;
+        }
+
+        public int getMaxHistory() {
+            return maxHistory;
+        }
+
+        public void setMaxHistory(int maxHistory) {
+            this.maxHistory = maxHistory;
         }
     }
 

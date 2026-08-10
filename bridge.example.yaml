@@ -60,6 +60,15 @@ bridge:
     # rule that fired. Denials without a reason are useless; the reason is the point.
     file: audit.log
 
+    # The bridge rotates this file itself, because nothing outside it can: it holds one
+    # appending handle for the life of the process, so logrotate's rename leaves this process
+    # writing to the renamed inode on Linux and fails outright on Windows. `max-size` is where
+    # the live file is rolled to audit.log.1, `max-history` is how many generations are kept
+    # before the oldest is deleted — so the audit log occupies at most max-size × 10 however
+    # long the process runs. Ship them somewhere durable if you need to keep more than that.
+    max-size: 64MB
+    max-history: 9
+
   datasources:
     - name: orders-db
       url: jdbc:postgresql://localhost:5432/orders

@@ -36,6 +36,7 @@ public final class JvmAdapter implements ProbeableBackend, AutoCloseable {
 
         List<BridgeTool> built = new ArrayList<>(MBeanTools.create(handle, policy));
         built.addAll(MemoryTools.create(handle, policy));
+        built.addAll(ThreadTools.create(handle, policy));
         this.tools = List.copyOf(built);
     }
 

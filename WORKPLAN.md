@@ -113,8 +113,17 @@ partition is behind and sample the messages stuck there.
       usage counts uncollected garbage, so a healthy young generation reads as nearly full;
       the reported figure is usage after the pool's last collection, which is the only number
       here whose growth is the shape of a leak.
-- [ ] **4.3 Threads** — `jvm.threads` with state histogram, top stacks, and explicit
-      deadlock detection via `findDeadlockedThreads`.
+- [x] **4.3 Threads** — `jvm.threads` with state histogram, top stacks, and explicit
+      deadlock detection via `findDeadlockedThreads`. Threads are *grouped* by their stack
+      rather than dumped, the same move `kafka.dlq_sample` makes: the finding in a thread dump
+      is almost never one stack, it is that three hundred threads are stopped in the same
+      place, and reading that out of a dump means comparing every stack against every other.
+      Grouping drops line numbers, or one pool waiting on one queue splits into four groups
+      across four lines of the same park loop; samples keep their full frames. Deadlocks are
+      reported separately because they are the only verdict here — a large WAITING group is an
+      idle pool or a stuck one and the snapshot cannot tell, whereas a cycle is broken on its
+      own terms. Nothing is inferred: a wrong deadlock report sends someone after a bug that
+      is not there while the real one continues.
 - [ ] **4.4 Actuator client** — `jvm.actuator` reads health, env and metrics from a Spring
       Boot app's Actuator, with the sensitive-key redaction the policy engine already has.
 - [ ] **4.5 JFR snapshot** — `jvm.jfr_snapshot` runs a time-boxed recording and returns a

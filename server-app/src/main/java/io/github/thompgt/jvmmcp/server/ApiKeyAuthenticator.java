@@ -44,6 +44,21 @@ public final class ApiKeyAuthenticator implements BridgeAuthenticator {
             if (secret == null || secret.isBlank()) {
                 throw new IllegalStateException("bridge.http.auth.keys[].key is required");
             }
+            if (secret.startsWith("${") && secret.endsWith("}")) {
+                // Boot's binder leaves an unresolvable placeholder as its own text rather than
+                // failing, so `key: ${ANALYST_KEY}` with no ANALYST_KEY set arrives here as the
+                // literal string. Without this the operator is told their key is too short,
+                // which is true and useless: the actual fault is an unset variable.
+                throw new IllegalStateException(
+                        "the API key for principal '"
+                                + configured.getPrincipal()
+                                + "' is the unresolved placeholder "
+                                + secret
+                                + ". Export "
+                                + secret.substring(2, secret.length() - 1)
+                                + " before starting the bridge, or write the key into the config"
+                                + " file. It is not being used as a literal key.");
+            }
             if (secret.length() < 16) {
                 // Short keys in a config file get reused and guessed. Refuse at startup rather
                 // than let a deployment discover this after the fact.

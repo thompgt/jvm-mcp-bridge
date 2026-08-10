@@ -73,7 +73,9 @@ cd jvm-mcp-bridge
 
 docker compose up -d postgres          # sample database on :5432
                                        # port taken? BRIDGE_PG_PORT=55432 docker compose up -d postgres
-cp bridge.example.yaml bridge.yaml     # gitignored; edit to point at your system
+cp bridge.example.yaml bridge.yaml     # gitignored; runs as-is against the compose Postgres.
+                                       # The Kafka and JVM sections are commented out — uncomment
+                                       # the backends you actually have and point them at yours.
 ./gradlew :server-app:bootJar
 ```
 

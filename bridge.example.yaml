@@ -159,6 +159,18 @@ bridge:
       jmx-url: service:jmx:rmi:///jndi/rmi://localhost:9010/jmxrmi
       # username: ${JMX_USER}
       # password: ${JMX_PASSWORD}
+
+      # The application's Spring Boot Actuator, which answers what JMX cannot: whether the
+      # databases and brokers it depends on are reachable, which property source supplied the
+      # configuration it is actually using, and its own Micrometer meters.
+      #
+      # Omit this and no jvm.actuator tool is registered at all. Only the path is ever taken
+      # from a tool call — the host is this line — and redirects are not followed.
+      actuator-base-url: http://localhost:8080/actuator
+      # actuator-username: ${ACTUATOR_USER}
+      # actuator-password: ${ACTUATOR_PASSWORD}
+      # actuator-token: ${ACTUATOR_TOKEN}      # bearer, used when no username is set
+
       policy:
         # ObjectName patterns, matched against the canonical name — property keys sorted — so
         # the order they are written in cannot be used to slip past the list.
@@ -166,6 +178,21 @@ bridge:
           - "java.lang:*"              # Memory, MemoryPool, GarbageCollector, Threading, Runtime
           - "java.nio:*"               # direct and mapped buffer pools
           - "org.springframework.boot:*"
+
+        # Actuator endpoints, named one at a time. Empty means jvm.actuator refuses every
+        # call — an Actuator that is configured is still not readable until someone says
+        # which parts of it are.
+        #
+        # Enumerated rather than wildcarded because these are nothing like each other in
+        # sensitivity: `health` is a status word, `env` is the whole resolved configuration,
+        # and `heapdump` is every object in memory including every string that has held a
+        # password. Granting them as a group means whoever wanted the first gave away the
+        # third. GET only, so `shutdown` and `loggers` cannot be written to whatever is
+        # listed here.
+        allow-actuator:
+          - health
+          - metrics
+          # - env          # add deliberately: this is the entire resolved configuration
 
         # Caps a listing and the elements rendered from a single attribute value. A JVM with
         # 5000 live threads has an AllThreadIds longer than any useful answer.
@@ -176,7 +203,9 @@ bridge:
         # Matched against `ObjectName.attribute` AND against keys nested inside composite and
         # tabular values, which is the case that matters: credentials on a JVM are almost
         # never an attribute called Password, they are a key inside SystemProperties or a word
-        # inside InputArguments.
+        # inside InputArguments. The same patterns are applied to Actuator responses, at every
+        # depth — Actuator does some masking of its own, but that is the target application's
+        # setting rather than this server's, and it can be turned off there.
         #
         # Unlike the other backends this list is NOT empty by default. A database exposes
         # credentials only if someone stored them in a table; a JVM exposes them structurally.

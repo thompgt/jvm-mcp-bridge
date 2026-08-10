@@ -574,6 +574,20 @@ public class BridgeProperties {
 
         private String password;
 
+        /**
+         * The application's Actuator root, e.g. {@code http://localhost:8080/actuator}. Omitted,
+         * no {@code jvm.actuator} tool is registered at all — there is nothing for it to reach.
+         */
+        private String actuatorBaseUrl;
+
+        /** HTTP basic credentials for a secured Actuator. */
+        private String actuatorUsername;
+
+        private String actuatorPassword;
+
+        /** Bearer token, used when no {@code actuator-username} is given. */
+        private String actuatorToken;
+
         private JvmPolicy policy = new JvmPolicy();
 
         private Map<String, ProfileOverride> profiles = new LinkedHashMap<>();
@@ -610,6 +624,38 @@ public class BridgeProperties {
             this.password = password;
         }
 
+        public String getActuatorBaseUrl() {
+            return actuatorBaseUrl;
+        }
+
+        public void setActuatorBaseUrl(String actuatorBaseUrl) {
+            this.actuatorBaseUrl = actuatorBaseUrl;
+        }
+
+        public String getActuatorUsername() {
+            return actuatorUsername;
+        }
+
+        public void setActuatorUsername(String actuatorUsername) {
+            this.actuatorUsername = actuatorUsername;
+        }
+
+        public String getActuatorPassword() {
+            return actuatorPassword;
+        }
+
+        public void setActuatorPassword(String actuatorPassword) {
+            this.actuatorPassword = actuatorPassword;
+        }
+
+        public String getActuatorToken() {
+            return actuatorToken;
+        }
+
+        public void setActuatorToken(String actuatorToken) {
+            this.actuatorToken = actuatorToken;
+        }
+
         public JvmPolicy getPolicy() {
             return policy;
         }
@@ -631,6 +677,20 @@ public class BridgeProperties {
     public static class JvmPolicy {
         /** ObjectName patterns. {@code java.lang:*} is the platform's own beans. */
         private List<String> allowMbeans = new ArrayList<>();
+
+        /**
+         * Actuator endpoints, named one at a time: {@code health}, {@code env}, {@code metrics}.
+         *
+         * <p>Enumerated rather than wildcarded because Actuator endpoints are nothing like each
+         * other in sensitivity. {@code health} is a status word; {@code env} is the application's
+         * whole resolved configuration; {@code heapdump} is every object in memory, including
+         * every string that has held a password. A group grant would mean the operator who wanted
+         * the first had given away the third.
+         *
+         * <p>Empty by default, so an Actuator that is configured is still not readable until
+         * someone says which parts of it are.
+         */
+        private List<String> allowActuator = new ArrayList<>();
 
         /**
          * Caps both how many MBeans a listing returns and how many elements of a single
@@ -664,6 +724,14 @@ public class BridgeProperties {
 
         public void setAllowMbeans(List<String> allowMbeans) {
             this.allowMbeans = allowMbeans;
+        }
+
+        public List<String> getAllowActuator() {
+            return allowActuator;
+        }
+
+        public void setAllowActuator(List<String> allowActuator) {
+            this.allowActuator = allowActuator;
         }
 
         public int getMaxResults() {

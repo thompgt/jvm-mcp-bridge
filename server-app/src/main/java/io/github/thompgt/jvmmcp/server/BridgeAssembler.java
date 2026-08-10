@@ -4,9 +4,11 @@ import io.github.thompgt.jvmmcp.core.ProbeableBackend;
 import io.github.thompgt.jvmmcp.core.ToolRegistry;
 import io.github.thompgt.jvmmcp.jdbc.JdbcAdapter;
 import io.github.thompgt.jvmmcp.jdbc.JdbcDataSourceHandle;
-import io.github.thompgt.jvmmcp.kafka.KafkaAdapter;
+import io.github.thompgt.jvmmcp.jvm.ActuatorHandle;
+import io.github.thompgt.jvmmcp.jvm.ActuatorTools;
 import io.github.thompgt.jvmmcp.jvm.JvmAdapter;
 import io.github.thompgt.jvmmcp.jvm.JvmTargetHandle;
+import io.github.thompgt.jvmmcp.kafka.KafkaAdapter;
 import io.github.thompgt.jvmmcp.kafka.KafkaBrokerHandle;
 import io.github.thompgt.jvmmcp.policy.AccessMode;
 import io.github.thompgt.jvmmcp.policy.AuditSink;
@@ -119,17 +121,29 @@ public final class BridgeAssembler implements AutoCloseable {
                     jvm.getUsername(),
                     jvm.getPassword());
 
-            JvmAdapter adapter = new JvmAdapter(handle, profiles, audit);
+            // Null when no base URL is configured, which registers no jvm.actuator tool at all.
+            ActuatorHandle actuator = jvm.getActuatorBaseUrl() == null
+                            || jvm.getActuatorBaseUrl().isBlank()
+                    ? null
+                    : new ActuatorHandle(
+                            jvm.getActuatorBaseUrl(),
+                            jvm.getActuatorUsername(),
+                            jvm.getActuatorPassword(),
+                            jvm.getActuatorToken(),
+                            jvm.getPolicy().getRequestTimeout());
+
+            JvmAdapter adapter = new JvmAdapter(handle, actuator, profiles, audit);
             closeables.add(adapter);
             backends.add(adapter);
             registry.registerAll(adapter.tools());
 
             log.info(
-                    "jvm '{}' registered in {} mode against {} with {} readable MBean pattern(s) and profile(s) {}",
+                    "jvm '{}' registered in {} mode against {} with {} readable resource(s){} and profile(s) {}",
                     jvm.getName(),
                     profile.mode(),
                     handle.isEmbedded() ? "this process" : "a remote JMX connector",
                     profile.readableResources().size(),
+                    actuator == null ? "" : ", plus Actuator at " + actuator.baseUrl(),
                     profiles.names().isEmpty() ? "[default only]" : profiles.names());
         }
 
@@ -185,9 +199,16 @@ public final class BridgeAssembler implements AutoCloseable {
          * why {@code invoke} and {@code setAttribute} are not offered even behind two gates.
          */
         static PolicySpec of(String name, BridgeProperties.JvmPolicy p) {
+            // MBean patterns and Actuator endpoints share one read allowlist, the endpoints
+            // prefixed so the two cannot collide. One list rather than two because the engine
+            // has one, and a second dimension would put the narrowing check — what stops a
+            // named profile widening a backend default — in two places that have to agree.
+            List<String> readable = new ArrayList<>(p.getAllowMbeans());
+            p.getAllowActuator().forEach(endpoint -> readable.add(
+                    ActuatorTools.RESOURCE_PREFIX + endpoint.trim()));
             return new PolicySpec(
                     name,
-                    p.getAllowMbeans(),
+                    readable,
                     List.of(),
                     p.getMaxResults(),
                     p.getMaxResultBytes().toBytes(),

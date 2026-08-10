@@ -31,12 +31,27 @@ public final class JvmAdapter implements ProbeableBackend, AutoCloseable {
     }
 
     public JvmAdapter(JvmTargetHandle handle, PolicyProfiles profiles, AuditSink audit) {
+        this(handle, null, profiles, audit);
+    }
+
+    /**
+     * @param actuator the target's Actuator, or {@code null} when it has none. Absent rather than
+     *     refusing, unlike the Kafka write tools: those are registered even where they cannot run
+     *     because the model needs to be told <em>why</em> a thing it can see is refused. Here
+     *     there is nothing to explain — an application with no Actuator has no endpoint that any
+     *     configuration change to this server would reach.
+     */
+    public JvmAdapter(
+            JvmTargetHandle handle, ActuatorHandle actuator, PolicyProfiles profiles, AuditSink audit) {
         this.handle = handle;
         this.policy = new PolicyEngine(profiles, audit);
 
         List<BridgeTool> built = new ArrayList<>(MBeanTools.create(handle, policy));
         built.addAll(MemoryTools.create(handle, policy));
         built.addAll(ThreadTools.create(handle, policy));
+        if (actuator != null) {
+            built.addAll(ActuatorTools.create(handle, actuator, policy));
+        }
         this.tools = List.copyOf(built);
     }
 

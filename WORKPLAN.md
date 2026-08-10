@@ -124,8 +124,18 @@ partition is behind and sample the messages stuck there.
       idle pool or a stuck one and the snapshot cannot tell, whereas a cycle is broken on its
       own terms. Nothing is inferred: a wrong deadlock report sends someone after a bug that
       is not there while the real one continues.
-- [ ] **4.4 Actuator client** — `jvm.actuator` reads health, env and metrics from a Spring
+- [x] **4.4 Actuator client** — `jvm.actuator` reads health, env and metrics from a Spring
       Boot app's Actuator, with the sensitive-key redaction the policy engine already has.
+      Endpoints are allowlisted one at a time, not as a group: `health` is a status word,
+      `env` is the whole resolved configuration and `heapdump` is every string that has ever
+      held a password, so a group grant means whoever wanted the first gave away the third.
+      GET only. It is also an HTTP client aimed at an internal address with a model-chosen
+      path — the SSRF shape — so the host comes only from configuration, every path segment
+      is validated against a strict charset before a request is made, and redirects are
+      refused rather than followed. Actuator's own masking is the *target's* setting and can
+      be switched off there, so the policy redactor is applied again over every key at every
+      depth: what leaves this process does not depend on how the application it describes
+      happens to be configured.
 - [ ] **4.5 JFR snapshot** — `jvm.jfr_snapshot` runs a time-boxed recording and returns a
       *summary* (hot methods, allocation sites, longest pauses). Never a raw dump — a .jfr
       file is useless to a model and enormous.

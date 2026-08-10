@@ -119,7 +119,8 @@ public final class BridgeAssembler implements AutoCloseable {
                     jvm.getJmxUrl(),
                     jvm.getPolicy().getRequestTimeout(),
                     jvm.getUsername(),
-                    jvm.getPassword());
+                    jvm.getPassword(),
+                    jvm.getPolicy().getJfrMaxDuration());
 
             // Null when no base URL is configured, which registers no jvm.actuator tool at all.
             ActuatorHandle actuator = jvm.getActuatorBaseUrl() == null

@@ -49,6 +49,10 @@ public final class JvmAdapter implements ProbeableBackend, AutoCloseable {
         List<BridgeTool> built = new ArrayList<>(MBeanTools.create(handle, policy));
         built.addAll(MemoryTools.create(handle, policy));
         built.addAll(ThreadTools.create(handle, policy));
+        // Registered unconditionally, unlike the Actuator tool: JFR needs no configuration this
+        // target might lack, and whether it is reachable is a question of the MBean allowlist,
+        // which is a refusal the model can be told about rather than an absence it cannot.
+        built.addAll(JfrTools.create(handle, policy));
         if (actuator != null) {
             built.addAll(ActuatorTools.create(handle, actuator, policy));
         }

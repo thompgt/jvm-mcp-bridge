@@ -704,6 +704,16 @@ public class BridgeProperties {
         private Duration requestTimeout = Duration.ofSeconds(10);
 
         /**
+         * Longest Flight Recorder run {@code jvm.jfr_snapshot} may ask the target for.
+         *
+         * <p>Separate from {@code request-timeout} because it is not the same kind of bound. The
+         * request timeout limits how long this bridge waits; this limits how long the target
+         * carries profiling overhead, and it deliberately outlasts the timeout — a recording cut
+         * short costs the application the whole overhead and returns nothing for it.
+         */
+        private Duration jfrMaxDuration = Duration.ofSeconds(30);
+
+        /**
          * Patterns matched against {@code ObjectName.attribute} <em>and</em> against keys nested
          * inside a composite or tabular value.
          *
@@ -756,6 +766,14 @@ public class BridgeProperties {
 
         public void setRequestTimeout(Duration requestTimeout) {
             this.requestTimeout = requestTimeout;
+        }
+
+        public Duration getJfrMaxDuration() {
+            return jfrMaxDuration;
+        }
+
+        public void setJfrMaxDuration(Duration jfrMaxDuration) {
+            this.jfrMaxDuration = jfrMaxDuration;
         }
 
         public List<String> getRedactAttributes() {

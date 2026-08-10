@@ -136,9 +136,18 @@ partition is behind and sample the messages stuck there.
       be switched off there, so the policy redactor is applied again over every key at every
       depth: what leaves this process does not depend on how the application it describes
       happens to be configured.
-- [ ] **4.5 JFR snapshot** — `jvm.jfr_snapshot` runs a time-boxed recording and returns a
-      *summary* (hot methods, allocation sites, longest pauses). Never a raw dump — a .jfr
-      file is useless to a model and enormous.
+- [x] **4.5 JFR snapshot** — `jvm.jfr_snapshot` runs a time-boxed recording and returns a
+      *summary* (hot methods, allocation sites, longest pauses, monitor contention). Never a
+      raw dump — a .jfr file is useless to a model and enormous. Driven through
+      `FlightRecorderMXBean`, so it works over a JMX connection to a sidecar exactly as it
+      does in-process, which is the case that matters: the JVM worth profiling is rarely the
+      one running the bridge. Bounded four ways — duration capped by configuration rather
+      than by the caller, one recording at a time (a concurrent call is refused, not queued,
+      since two recordings double an overhead that was accepted once), a size ceiling on the
+      transferred stream, and unconditional cleanup of both the recording and the temporary
+      file. The recording also carries a dead-man's duration longer than the requested
+      window, so a bridge that dies mid-call leaves a recording that stops itself rather than
+      one that profiles the target until it is restarted.
 
 Done when: pointed at a JVM under synthetic load, the model reports which pool is filling
 and which threads are contended, without a human reading a dump.

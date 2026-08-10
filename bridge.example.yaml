@@ -178,6 +178,10 @@ bridge:
           - "java.lang:*"              # Memory, MemoryPool, GarbageCollector, Threading, Runtime
           - "java.nio:*"               # direct and mapped buffer pools
           - "org.springframework.boot:*"
+          # jvm.jfr_snapshot is guarded on this bean, so listing it is the opt-in for
+          # profiling at all. Leave it out and the tool is still registered and refuses
+          # every call, naming this list — which is more use to a model than a missing tool.
+          - "jdk.management.jfr:type=FlightRecorder"
 
         # Actuator endpoints, named one at a time. Empty means jvm.actuator refuses every
         # call — an Actuator that is configured is still not readable until someone says
@@ -199,6 +203,14 @@ bridge:
         max-results: 100
         max-result-bytes: 256KB
         request-timeout: 10s
+
+        # Longest Flight Recorder run jvm.jfr_snapshot may ask the target for, and a different
+        # kind of bound from request-timeout: that one limits how long this bridge waits, this
+        # one limits how long the target carries profiling overhead. It deliberately outlasts
+        # the timeout — a recording cut short costs the application the whole overhead and
+        # returns nothing for it. The tool call blocks for the whole recording, so an MCP
+        # client's own timeout is the practical ceiling here.
+        jfr-max-duration: 30s
 
         # Matched against `ObjectName.attribute` AND against keys nested inside composite and
         # tabular values, which is the case that matters: credentials on a JVM are almost

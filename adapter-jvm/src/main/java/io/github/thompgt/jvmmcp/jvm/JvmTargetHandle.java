@@ -59,6 +59,7 @@ public final class JvmTargetHandle implements AutoCloseable {
     private final Duration connectTimeout;
     private final String username;
     private final String password;
+    private final Duration jfrMaxDuration;
     private final ExecutorService calls;
 
     private JMXConnector connector;
@@ -71,7 +72,24 @@ public final class JvmTargetHandle implements AutoCloseable {
      */
     public JvmTargetHandle(
             String name, String jmxUrl, Duration connectTimeout, String username, String password) {
+        this(name, jmxUrl, connectTimeout, username, password, Duration.ofSeconds(30));
+    }
+
+    /**
+     * @param jfrMaxDuration longest Flight Recorder run {@code jvm.jfr_snapshot} may ask for.
+     *     Sits here rather than in the policy caps because it is not a bound on a result, it is a
+     *     bound on how long this bridge may make the target carry profiling overhead — and it has
+     *     to outlast the ordinary call timeout, which every other bound is derived from.
+     */
+    public JvmTargetHandle(
+            String name,
+            String jmxUrl,
+            Duration connectTimeout,
+            String username,
+            String password,
+            Duration jfrMaxDuration) {
         this.name = name;
+        this.jfrMaxDuration = jfrMaxDuration;
         this.jmxUrl = jmxUrl == null || jmxUrl.isBlank() ? null : jmxUrl.trim();
         this.connectTimeout = connectTimeout;
         this.username = username;
@@ -172,6 +190,10 @@ public final class JvmTargetHandle implements AutoCloseable {
 
     Duration connectTimeout() {
         return connectTimeout;
+    }
+
+    Duration jfrMaxDuration() {
+        return jfrMaxDuration;
     }
 
     private void closeQuietly() {

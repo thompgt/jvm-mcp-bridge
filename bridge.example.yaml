@@ -141,14 +141,61 @@ bridge:
         # which gate stopped it, which is more useful to a model than a missing tool.
         # allow-write-topics:
         #   - orders.replay
-  #
-  # jvms:
-  #   - name: orders-service
-  #     jmx-url: service:jmx:rmi:///jndi/rmi://localhost:9010/jmxrmi
-  #     actuator-base-url: http://localhost:8080/actuator
-  #     policy:
-  #       allow-mbeans: ["java.lang:*", "org.springframework.boot:*"]
-  #       jfr-max-duration: 30s
+  jvms:
+    - name: orders-service
+      # Omit jmx-url to describe the JVM this bridge is running in. That is right when the
+      # bridge is embedded in the application it reports on, and close to useless otherwise —
+      # a standalone bridge with no URL answers every question about itself and none about
+      # the service anyone is asking after.
+      #
+      # The target must be started with JMX exposed, which is a decision about that process,
+      # not this one:
+      #   -Dcom.sun.management.jmxremote.port=9010
+      #   -Dcom.sun.management.jmxremote.rmi.port=9010
+      #   -Djava.rmi.server.hostname=<the address this bridge reaches it on>
+      # An unauthenticated JMX port is remote code execution to anyone who can reach it, so
+      # bind it to localhost or a private network and prefer authentication where the
+      # deployment can carry it.
+      jmx-url: service:jmx:rmi:///jndi/rmi://localhost:9010/jmxrmi
+      # username: ${JMX_USER}
+      # password: ${JMX_PASSWORD}
+      policy:
+        # ObjectName patterns, matched against the canonical name — property keys sorted — so
+        # the order they are written in cannot be used to slip past the list.
+        allow-mbeans:
+          - "java.lang:*"              # Memory, MemoryPool, GarbageCollector, Threading, Runtime
+          - "java.nio:*"               # direct and mapped buffer pools
+          - "org.springframework.boot:*"
+
+        # Caps a listing and the elements rendered from a single attribute value. A JVM with
+        # 5000 live threads has an AllThreadIds longer than any useful answer.
+        max-results: 100
+        max-result-bytes: 256KB
+        request-timeout: 10s
+
+        # Matched against `ObjectName.attribute` AND against keys nested inside composite and
+        # tabular values, which is the case that matters: credentials on a JVM are almost
+        # never an attribute called Password, they are a key inside SystemProperties or a word
+        # inside InputArguments.
+        #
+        # Unlike the other backends this list is NOT empty by default. A database exposes
+        # credentials only if someone stored them in a table; a JVM exposes them structurally.
+        # The defaults below apply unless this key is present, and writing it replaces them.
+        redact-attributes:
+          - "*password*"
+          - "*secret*"
+          - "*credential*"
+          - "*passwd*"
+          - "*apikey*"
+          - "*api-key*"
+          - "*.token"
+
+        # There is no allow-write list here, and no mode that produces one. This adapter reads
+        # attributes and nothing else: MBean operations, setAttribute and bean registration are
+        # not exposed at all. The platform beans alone can trigger a full GC, dump the heap to
+        # a path of the caller's choosing and change every logger in the process, and they are
+        # the same beans that carry the attributes worth reading — so there is no allowlist
+        # granular enough to make invoking one a considered decision.
   #
   # apis:
   #   - name: billing

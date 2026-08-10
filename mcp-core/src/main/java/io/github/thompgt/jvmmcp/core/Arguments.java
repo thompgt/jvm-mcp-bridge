@@ -96,6 +96,36 @@ public final class Arguments {
         throw new BadArgumentException("argument " + name + " must be a number");
     }
 
+    /**
+     * Reads an array of strings, rejecting a bare string in its place.
+     *
+     * <p>Accepting {@code "a"} as {@code ["a"]} would be a kindness that costs more than it
+     * saves: the model that sent it learns the wrong shape and sends it again on a tool where
+     * the two mean different things. An empty list and an absent argument are both returned as
+     * the fallback, because a client that omits a filter and one that sends an empty filter mean
+     * the same thing by it.
+     */
+    public java.util.List<String> optionalStringList(String name, java.util.List<String> fallback) {
+        Object value = raw.get(name);
+        if (value == null) {
+            return fallback;
+        }
+        if (!(value instanceof java.util.List<?> list)) {
+            throw new BadArgumentException("argument " + name + " must be an array of strings");
+        }
+        if (list.isEmpty()) {
+            return fallback;
+        }
+        java.util.List<String> strings = new java.util.ArrayList<>(list.size());
+        for (Object element : list) {
+            if (!(element instanceof String s) || s.isBlank()) {
+                throw new BadArgumentException("argument " + name + " must contain only non-empty strings");
+            }
+            strings.add(s);
+        }
+        return java.util.List.copyOf(strings);
+    }
+
     public boolean optionalBoolean(String name, boolean fallback) {
         Object value = raw.get(name);
         if (value == null) {

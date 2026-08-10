@@ -92,8 +92,17 @@ partition is behind and sample the messages stuck there.
 
 ## Phase 4 — JVM runtime adapter
 
-- [ ] **4.1 MBean access** — `jvm.mbeans` (pattern query) and `jvm.attribute`, over the local
-      `MBeanServer` when embedded or a remote JMX URL when running as a sidecar.
+- [x] **4.1 MBean access** — `jvm.mbeans` (pattern query) and `jvm.attribute`, over the local
+      `MBeanServer` when embedded or a remote JMX URL when running as a sidecar. Reads only:
+      `invoke`, `setAttribute` and bean registration are unreachable at every access mode,
+      because the beans carrying the attributes worth reading are the same ones that can
+      trigger a full GC, dump the heap to a caller-chosen path, or relevel every logger —
+      there is no allowlist granular enough to make that a considered grant. Composite and
+      tabular values are rendered as nested objects under a shared budget, and truncation is
+      reported: a list of 100 thread ids from a JVM with 5000 is a partial answer, and one
+      that does not say so is a wrong one. Redaction matches keys *inside* those values, since
+      a JVM's credentials are never an attribute called Password — they are a key in
+      `SystemProperties`. Alone among the backends its redaction default is non-empty.
 - [ ] **4.2 Memory and GC** — `jvm.memory` from the platform MXBeans: heap/non-heap, pool
       breakdown, GC counts and times, with deltas rather than raw counters.
 - [ ] **4.3 Threads** — `jvm.threads` with state histogram, top stacks, and explicit

@@ -32,6 +32,8 @@ public class BridgeProperties {
 
     private List<Broker> brokers = new ArrayList<>();
 
+    private List<Jvm> jvms = new ArrayList<>();
+
     public enum Transport {
         /** Launched as a subprocess by an MCP client. */
         STDIO,
@@ -553,6 +555,150 @@ public class BridgeProperties {
         }
     }
 
+    public static class Jvm {
+        private String name;
+
+        /**
+         * A {@code service:jmx:…} URL for another process, or omitted to describe the JVM this
+         * bridge runs in.
+         *
+         * <p>Omitting it is the honest default for a bridge embedded in the application it
+         * reports on, and close to useless otherwise: the local MBeanServer describes this
+         * process, so a standalone bridge with no URL answers every question about itself and
+         * none about the service anyone is asking after.
+         */
+        private String jmxUrl;
+
+        /** JMX credentials, when the target's connector authenticates. Use a placeholder. */
+        private String username;
+
+        private String password;
+
+        private JvmPolicy policy = new JvmPolicy();
+
+        private Map<String, ProfileOverride> profiles = new LinkedHashMap<>();
+
+        public String getName() {
+            return name;
+        }
+
+        public void setName(String name) {
+            this.name = name;
+        }
+
+        public String getJmxUrl() {
+            return jmxUrl;
+        }
+
+        public void setJmxUrl(String jmxUrl) {
+            this.jmxUrl = jmxUrl;
+        }
+
+        public String getUsername() {
+            return username;
+        }
+
+        public void setUsername(String username) {
+            this.username = username;
+        }
+
+        public String getPassword() {
+            return password;
+        }
+
+        public void setPassword(String password) {
+            this.password = password;
+        }
+
+        public JvmPolicy getPolicy() {
+            return policy;
+        }
+
+        public void setPolicy(JvmPolicy policy) {
+            this.policy = policy;
+        }
+
+        public Map<String, ProfileOverride> getProfiles() {
+            return profiles;
+        }
+
+        public void setProfiles(Map<String, ProfileOverride> profiles) {
+            this.profiles = profiles;
+        }
+    }
+
+    /** {@link Policy} in the vocabulary of a JVM: MBeans instead of tables, attributes instead of columns. */
+    public static class JvmPolicy {
+        /** ObjectName patterns. {@code java.lang:*} is the platform's own beans. */
+        private List<String> allowMbeans = new ArrayList<>();
+
+        /**
+         * Caps both how many MBeans a listing returns and how many elements of a single
+         * attribute value are rendered — a JVM with 5000 live threads has an {@code AllThreadIds}
+         * that is longer than any useful answer.
+         */
+        private int maxResults = 100;
+
+        private DataSize maxResultBytes = DataSize.ofKilobytes(256);
+
+        private Duration requestTimeout = Duration.ofSeconds(10);
+
+        /**
+         * Patterns matched against {@code ObjectName.attribute} <em>and</em> against keys nested
+         * inside a composite or tabular value.
+         *
+         * <p>Non-empty by default, which no other backend's policy is, and the asymmetry is
+         * deliberate. A database exposes credentials only if someone stored them in a table; a
+         * JVM exposes them structurally — {@code SystemProperties} and {@code InputArguments}
+         * carry the datasource password of essentially every Spring Boot application ever
+         * started with one on the command line. An operator who configures a JVM target and
+         * thinks no further about redaction should not thereby hand those to a model. Replace
+         * this list to change it; the entries are patterns, not a hardcoded rule.
+         */
+        private List<String> redactAttributes = new ArrayList<>(
+                List.of("*password*", "*secret*", "*credential*", "*passwd*", "*apikey*", "*api-key*", "*.token"));
+
+        public List<String> getAllowMbeans() {
+            return allowMbeans;
+        }
+
+        public void setAllowMbeans(List<String> allowMbeans) {
+            this.allowMbeans = allowMbeans;
+        }
+
+        public int getMaxResults() {
+            return maxResults;
+        }
+
+        public void setMaxResults(int maxResults) {
+            this.maxResults = maxResults;
+        }
+
+        public DataSize getMaxResultBytes() {
+            return maxResultBytes;
+        }
+
+        public void setMaxResultBytes(DataSize maxResultBytes) {
+            this.maxResultBytes = maxResultBytes;
+        }
+
+        public Duration getRequestTimeout() {
+            return requestTimeout;
+        }
+
+        public void setRequestTimeout(Duration requestTimeout) {
+            this.requestTimeout = requestTimeout;
+        }
+
+        public List<String> getRedactAttributes() {
+            return redactAttributes;
+        }
+
+        public void setRedactAttributes(List<String> redactAttributes) {
+            this.redactAttributes = redactAttributes;
+        }
+    }
+
     public static class Policy {
         private List<String> allowTables = new ArrayList<>();
         private List<String> allowWriteTables = new ArrayList<>();
@@ -656,5 +802,13 @@ public class BridgeProperties {
 
     public void setBrokers(List<Broker> brokers) {
         this.brokers = brokers;
+    }
+
+    public List<Jvm> getJvms() {
+        return jvms;
+    }
+
+    public void setJvms(List<Jvm> jvms) {
+        this.jvms = jvms;
     }
 }

@@ -5,6 +5,8 @@ import io.github.thompgt.jvmmcp.core.ToolRegistry;
 import io.github.thompgt.jvmmcp.jdbc.JdbcAdapter;
 import io.github.thompgt.jvmmcp.jdbc.JdbcDataSourceHandle;
 import io.github.thompgt.jvmmcp.kafka.KafkaAdapter;
+import io.github.thompgt.jvmmcp.jvm.JvmAdapter;
+import io.github.thompgt.jvmmcp.jvm.JvmTargetHandle;
 import io.github.thompgt.jvmmcp.kafka.KafkaBrokerHandle;
 import io.github.thompgt.jvmmcp.policy.AccessMode;
 import io.github.thompgt.jvmmcp.policy.AuditSink;
@@ -104,12 +106,40 @@ public final class BridgeAssembler implements AutoCloseable {
                     profiles.names().isEmpty() ? "[default only]" : profiles.names());
         }
 
+        for (BridgeProperties.Jvm jvm : properties.getJvms()) {
+            requireText(jvm.getName(), "bridge.jvms[].name");
+
+            PolicyProfiles profiles = toProfiles(
+                    properties.getMode(), PolicySpec.of(jvm.getName(), jvm.getPolicy()), jvm.getProfiles());
+            PolicyProfile profile = profiles.defaultProfile();
+            JvmTargetHandle handle = new JvmTargetHandle(
+                    jvm.getName(),
+                    jvm.getJmxUrl(),
+                    jvm.getPolicy().getRequestTimeout(),
+                    jvm.getUsername(),
+                    jvm.getPassword());
+
+            JvmAdapter adapter = new JvmAdapter(handle, profiles, audit);
+            closeables.add(adapter);
+            backends.add(adapter);
+            registry.registerAll(adapter.tools());
+
+            log.info(
+                    "jvm '{}' registered in {} mode against {} with {} readable MBean pattern(s) and profile(s) {}",
+                    jvm.getName(),
+                    profile.mode(),
+                    handle.isEmbedded() ? "this process" : "a remote JMX connector",
+                    profile.readableResources().size(),
+                    profiles.names().isEmpty() ? "[default only]" : profiles.names());
+        }
+
         if (registry.toolCount() == 0) {
             // An MCP server with no tools looks healthy and is useless — the client connects,
             // sees nothing, and the user concludes the model "can't do it". Fail loudly.
             throw new IllegalStateException(
                     "no backends are configured, so this server would expose no tools."
-                            + " Add at least one entry under bridge.datasources in your config file.");
+                            + " Add at least one entry under bridge.datasources, bridge.brokers or"
+                            + " bridge.jvms in your config file.");
         }
         log.info("registered {} tool(s): {}", registry.toolCount(), registry.toolNames());
         return registry;
@@ -147,6 +177,22 @@ public final class BridgeAssembler implements AutoCloseable {
                     p.getMaxResultBytes().toBytes(),
                     p.getStatementTimeout(),
                     p.getRedactColumns());
+        }
+
+        /**
+         * A JVM target has no write allowlist because the adapter has no write path: reading an
+         * attribute is the only thing it can do, at any access mode. See {@code MBeanTools} for
+         * why {@code invoke} and {@code setAttribute} are not offered even behind two gates.
+         */
+        static PolicySpec of(String name, BridgeProperties.JvmPolicy p) {
+            return new PolicySpec(
+                    name,
+                    p.getAllowMbeans(),
+                    List.of(),
+                    p.getMaxResults(),
+                    p.getMaxResultBytes().toBytes(),
+                    p.getRequestTimeout(),
+                    p.getRedactAttributes());
         }
 
         static PolicySpec of(String name, BridgeProperties.BrokerPolicy p) {

@@ -1,0 +1,55 @@
+version: 2
+
+# Every dependency here is pinned to an exact version through gradle/libs.versions.toml,
+# which is the right call for reproducibility and the wrong one for staying patched: a pin
+# with nobody watching it is a version frozen at whatever was current the day it was written.
+# JSqlParser is the sharpest case — it is what makes the SQL allowlist an AST check rather
+# than a regex, so a parser bug is an allowlist bypass, and this process sits between an LLM
+# and a production database.
+updates:
+  - package-ecosystem: gradle
+    # Dependabot reads the version catalog as well as the build files.
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 10
+    labels:
+      - dependencies
+    groups:
+      # One PR for the routine noise, so a real security bump is not the eleventh open PR
+      # nobody has looked at. Test-only libraries move together and break loudly.
+      test-libraries:
+        patterns:
+          - "org.junit*:*"
+          - "org.assertj:*"
+          - "org.testcontainers:*"
+          - "com.h2database:*"
+        update-types:
+          - minor
+          - patch
+      # Spring Boot's modules are version-locked to each other by its BOM; splitting them
+      # across PRs produces combinations that were never tested together.
+      spring:
+        patterns:
+          - "org.springframework*:*"
+        update-types:
+          - minor
+          - patch
+    ignore:
+      # Majors of the things the guardrails are built on are a code change, not an upgrade:
+      # the MCP SDK's major tracks a protocol revision, and JSqlParser's AST shape is what
+      # SqlGuard walks. Both get raised deliberately, with the tests read rather than run.
+      - dependency-name: io.modelcontextprotocol.sdk:*
+        update-types: [version-update:semver-major]
+      - dependency-name: com.github.jsqlparser:jsqlparser
+        update-types: [version-update:semver-major]
+
+  # The workflow pins these to a major tag, which floats within a major and stops there.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    labels:
+      - dependencies

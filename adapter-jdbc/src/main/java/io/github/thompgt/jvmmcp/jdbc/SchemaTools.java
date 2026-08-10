@@ -168,7 +168,8 @@ public final class SchemaTools {
                 try (Connection connection = handle.connection()) {
                     DatabaseMetaData meta = connection.getMetaData();
                     List<String> primaryKey = primaryKeyColumns(meta, table);
-                    try (ResultSet rs = meta.getColumns(null, null, matchPattern(meta, table), "%")) {
+                    try (ResultSet rs =
+                            meta.getColumns(null, schemaPattern(meta, table), matchPattern(meta, table), "%")) {
                         while (rs.next()) {
                             String name = rs.getString("COLUMN_NAME");
                             Map<String, Object> column = new LinkedHashMap<>();
@@ -219,7 +220,7 @@ public final class SchemaTools {
 
         private static List<String> primaryKeyColumns(DatabaseMetaData meta, String table) {
             List<String> keys = new ArrayList<>();
-            try (ResultSet rs = meta.getPrimaryKeys(null, null, matchPattern(meta, table))) {
+            try (ResultSet rs = meta.getPrimaryKeys(null, schemaPattern(meta, table), matchPattern(meta, table))) {
                 while (rs.next()) {
                     keys.add(rs.getString("COLUMN_NAME").toLowerCase(java.util.Locale.ROOT));
                 }
@@ -237,9 +238,26 @@ public final class SchemaTools {
          * unquoted names lower-case, Oracle and H2 upper-case.
          */
         private static String matchPattern(DatabaseMetaData meta, String table) throws SQLException {
+            return fold(meta, table.substring(table.lastIndexOf('.') + 1));
+        }
+
+        /**
+         * The schema half of a qualified name, or null for an unqualified one.
+         *
+         * <p>{@code SqlGuard.normalise} keeps a non-default schema as part of the name, so a
+         * table allowlisted as {@code reporting.orders} arrives here qualified. Passing the whole
+         * string as the table pattern would match nothing and report an allowed table as
+         * missing.
+         */
+        private static String schemaPattern(DatabaseMetaData meta, String table) throws SQLException {
+            int lastDot = table.lastIndexOf('.');
+            return lastDot < 0 ? null : fold(meta, table.substring(0, lastDot));
+        }
+
+        private static String fold(DatabaseMetaData meta, String identifier) throws SQLException {
             return meta.storesUpperCaseIdentifiers()
-                    ? table.toUpperCase(java.util.Locale.ROOT)
-                    : table.toLowerCase(java.util.Locale.ROOT);
+                    ? identifier.toUpperCase(java.util.Locale.ROOT)
+                    : identifier.toLowerCase(java.util.Locale.ROOT);
         }
 
         @Override

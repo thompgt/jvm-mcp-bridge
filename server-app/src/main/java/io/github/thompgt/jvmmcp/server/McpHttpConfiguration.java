@@ -12,6 +12,7 @@ import io.modelcontextprotocol.server.transport.ServerTransportSecurityValidator
 import jakarta.servlet.http.HttpServletRequest;
 import java.time.Duration;
 import java.util.Map;
+import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -88,15 +89,31 @@ public class McpHttpConfiguration {
     }
 
     /**
+     * Endpoints served without a credential, because the caller cannot present one.
+     *
+     * <p>An orchestrator's probes and nothing else. Both answer with a status word — no backend
+     * names, no versions, no configuration — which is the whole reason they are safe to leave
+     * open and the reason {@code /actuator/health} itself is not on this list.
+     */
+    private static final Set<String> OPEN_PATHS =
+            Set.of("/actuator/health/liveness", "/actuator/health/readiness");
+
+    /**
      * Ordered ahead of everything else: no other filter should see a request from a caller the
      * bridge has not identified.
+     *
+     * <p>Covers Actuator as well as the MCP endpoint. Actuator shares this port, and
+     * {@code health} is published with {@code show-details: always} — every backend, its product
+     * and its version, which is a map of the estate to anyone who can reach the port. Moving
+     * management to its own port with {@code management.server.port} is the other answer and is
+     * still worth doing; this one holds whether or not an operator does.
      */
     @Bean
     public FilterRegistrationBean<McpAuthenticationFilter> mcpAuthenticationFilter(
             BridgeAuthenticator authenticator, BridgeProperties properties) {
         FilterRegistrationBean<McpAuthenticationFilter> registration =
-                new FilterRegistrationBean<>(new McpAuthenticationFilter(authenticator));
-        registration.addUrlPatterns(properties.getHttp().getEndpoint());
+                new FilterRegistrationBean<>(new McpAuthenticationFilter(authenticator, OPEN_PATHS));
+        registration.addUrlPatterns(properties.getHttp().getEndpoint(), "/actuator", "/actuator/*");
         registration.setOrder(Ordered.HIGHEST_PRECEDENCE);
         registration.setName("mcpAuthentication");
         return registration;

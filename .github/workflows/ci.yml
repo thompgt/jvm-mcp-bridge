@@ -72,3 +72,46 @@ jobs:
           name: integration-test-reports
           path: '**/build/reports/tests/**'
           retention-days: 7
+
+  # Every version in gradle/libs.versions.toml is an exact pin, which is right for
+  # reproducibility and useless for staying patched. Dependabot (.github/dependabot.yml)
+  # watches the declared ones; this job resolves the full graph — transitives included — and
+  # submits it, which is what turns on alerts for the dependencies nobody wrote down.
+  dependency-graph:
+    name: supply chain / dependency graph
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Make wrapper executable
+        run: chmod +x ./gradlew
+
+      - uses: gradle/actions/dependency-submission@v6
+
+  # On a pull request the graph is not submitted yet, so the check runs against the diff:
+  # a PR that introduces a dependency with a known advisory fails here rather than being
+  # noticed by an alert a week later.
+  dependency-review:
+    name: supply chain / dependency review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/dependency-review-action@v4
+        with:
+          # This process sits between an LLM and a production database; a moderate advisory
+          # in the SQL parser is not a moderate problem here.
+          fail-on-severity: moderate
+          comment-summary-in-pr: on-failure

@@ -41,7 +41,9 @@ public final class BridgeAssembler implements AutoCloseable {
         if (file == null || file.isBlank()) {
             return AuditSink.logging();
         }
-        AuditSink sink = AuditSink.file(Path.of(file));
+        BridgeProperties.Audit audit = properties.getAudit();
+        AuditSink sink = AuditSink.file(
+                Path.of(file), audit.getMaxSize().toBytes(), audit.getMaxHistory());
         if (sink instanceof AutoCloseable closeable) {
             closeables.add(closeable);
         }

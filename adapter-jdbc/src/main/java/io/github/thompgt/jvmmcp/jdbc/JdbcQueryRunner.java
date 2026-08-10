@@ -26,7 +26,8 @@ final class JdbcQueryRunner {
     static ResultSetReader.Page runQuery(
             JdbcDataSourceHandle handle,
             String sql,
-            String primaryTable,
+            List<String> tables,
+            boolean redactUnnamedColumns,
             EffectiveLimits limits,
             Redactor redactor)
             throws SQLException {
@@ -36,7 +37,12 @@ final class JdbcQueryRunner {
                 applyStatementBounds(statement, handle.dialect(), limits);
                 try (ResultSet rs = statement.executeQuery(sql)) {
                     return ResultSetReader.read(
-                            rs, primaryTable, limits.maxRows(), limits.maxResultBytes(), redactor);
+                            rs,
+                            tables,
+                            redactUnnamedColumns,
+                            limits.maxRows(),
+                            limits.maxResultBytes(),
+                            redactor);
                 }
             }
         }

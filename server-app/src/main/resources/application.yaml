@@ -16,14 +16,18 @@ management:
   endpoints:
     web:
       exposure:
-        # Health only. This endpoint is not behind the MCP authentication filter — a probe
-        # cannot present a credential — so nothing that lists configuration goes here.
+        # Health only. Under transport: http this endpoint IS behind the MCP authentication
+        # filter, because show-details below names every backend and its version and that is a
+        # map of the estate. The liveness and readiness probes stay open — a kubelet has no
+        # credential to present — and they answer with a status word and nothing else.
         include: health
   endpoint:
     health:
       # Per-backend detail is the reason this endpoint exists; BackendProbe is written to
-      # carry no URL, username or credential so that showing it is safe. If the port is
-      # reachable from outside the deployment, move Actuator with management.server.port.
+      # carry no URL, username or credential. It does still name the backends and their
+      # versions, so under transport: http the endpoint requires the same credential as /mcp.
+      # Moving Actuator to its own port with management.server.port is still worth doing where
+      # the deployment can carry it.
       show-details: always
       probes:
         enabled: true

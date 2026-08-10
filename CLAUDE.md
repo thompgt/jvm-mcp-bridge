@@ -47,7 +47,7 @@ client ──HTTP───┘        (mcp-core)   (mcp-policy)              ▼
 | `adapter-jdbc` | SQL validation, read-only execution, schema introspection |
 | `adapter-kafka` | Topic/group/lag inspection, bounded peek |
 | `adapter-jvm` | JMX MBeans, memory/threads, Actuator, JFR summaries |
-| `adapter-http` | OpenAPI 3 spec → generated MCP tools |
+| `adapter-http` | *Phase 5, not written yet.* Build file only. Planned: OpenAPI 3 spec → generated MCP tools |
 | `server-app` | Spring Boot: config binding, transports, auth, health. Only module that sees Spring. |
 
 ### Two invariants

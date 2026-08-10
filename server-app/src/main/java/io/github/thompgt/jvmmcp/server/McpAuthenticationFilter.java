@@ -8,6 +8,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.Optional;
+import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.web.filter.OncePerRequestFilter;
@@ -22,6 +23,12 @@ import org.springframework.web.filter.OncePerRequestFilter;
  *
  * <p>The principal is left on the request for {@code McpHttpConfiguration}'s context extractor
  * to pick up; that is the only handoff, and it happens after authentication has succeeded.
+ *
+ * <p>It also guards Actuator, which shares the port. {@code health} is published with
+ * {@code show-details: always} and names every backend, its product and its version — a map of
+ * the estate, free to anyone who can reach the port. The exception is the orchestrator probes:
+ * a kubelet has no credential to present, and those endpoints answer with a status word and
+ * nothing else.
  */
 public final class McpAuthenticationFilter extends OncePerRequestFilter {
 
@@ -31,15 +38,26 @@ public final class McpAuthenticationFilter extends OncePerRequestFilter {
     private static final Logger log = LoggerFactory.getLogger(McpAuthenticationFilter.class);
 
     private final BridgeAuthenticator authenticator;
+    private final Set<String> openPaths;
 
-    public McpAuthenticationFilter(BridgeAuthenticator authenticator) {
+    /**
+     * @param openPaths request paths served without a credential. Only for endpoints that carry
+     *     no information — the liveness and readiness probes, which return a status word.
+     */
+    public McpAuthenticationFilter(BridgeAuthenticator authenticator, Set<String> openPaths) {
         this.authenticator = authenticator;
+        this.openPaths = Set.copyOf(openPaths);
     }
 
     @Override
     protected void doFilterInternal(
             HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {
+
+        if (openPaths.contains(pathWithinApplication(request))) {
+            chain.doFilter(request, response);
+            return;
+        }
 
         Optional<Principal> principal = authenticator.authenticate(request);
         if (principal.isEmpty()) {
@@ -55,6 +73,17 @@ public final class McpAuthenticationFilter extends OncePerRequestFilter {
 
         request.setAttribute(PRINCIPAL_ATTRIBUTE, principal.get());
         chain.doFilter(request, response);
+    }
+
+    /** The path the servlet container matched on, without the context path. */
+    private static String pathWithinApplication(HttpServletRequest request) {
+        String path = request.getRequestURI();
+        String context = request.getContextPath();
+        if (context != null && !context.isEmpty() && path.startsWith(context)) {
+            path = path.substring(context.length());
+        }
+        // Trailing slash only: `/actuator/health/liveness/` is the same endpoint.
+        return path.length() > 1 && path.endsWith("/") ? path.substring(0, path.length() - 1) : path;
     }
 
     /**

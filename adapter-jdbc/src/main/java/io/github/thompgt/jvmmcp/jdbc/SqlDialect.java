@@ -69,8 +69,12 @@ public enum SqlDialect {
             case POSTGRESQL -> "EXPLAIN ";
             case MYSQL -> "EXPLAIN ";
             case H2 -> "EXPLAIN ";
-            case ORACLE -> "EXPLAIN PLAN FOR ";
-            case SQLSERVER, GENERIC -> null;
+            // Oracle has no read-only EXPLAIN. `EXPLAIN PLAN FOR` returns no result set and
+            // *inserts rows into PLAN_TABLE* — a write, issued by a tool that tells the model
+            // it is read-only, on a connection this server set read-only. Reading the plan back
+            // afterwards needs a second query and a cleanup DELETE, which is more writing. So
+            // there is no plan on Oracle, exactly as there is none on SQL Server.
+            case ORACLE, SQLSERVER, GENERIC -> null;
         };
     }
 }

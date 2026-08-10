@@ -7,6 +7,10 @@ dependencies {
     implementation(libs.hikaricp)
 
     testImplementation(libs.logback.classic)
+    // H2 in-memory. The redaction rules are a security boundary and belong in the fast suite,
+    // which must run with no Docker daemon; H2 supplies a real driver and real ResultSet
+    // metadata, which is exactly what those rules read.
+    testImplementation(libs.h2)
     testImplementation(platform(libs.testcontainers.bom))
     testImplementation(libs.testcontainers.junit)
     testImplementation(libs.testcontainers.postgresql)

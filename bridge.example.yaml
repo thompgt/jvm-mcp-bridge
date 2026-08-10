@@ -38,8 +38,11 @@ bridge:
           profile: analyst
         - key: ${ONCALL_KEY}
           principal: oncall
-        # Never commit a literal key. These resolve from the environment, and a key shorter
-        # than 16 characters is refused at startup.
+        # Never commit a literal key, and note there is deliberately no `:default` here — a
+        # default credential in a tracked file is the same key on every deployment. These
+        # resolve from the environment; export them before switching to transport: http, or
+        # startup refuses and names the variable that is missing. A key shorter than 16
+        # characters is refused too. Under transport: stdio none of this is read at all.
 
       # mode: oauth2 instead, for a deployment that already has an identity provider.
       #
@@ -57,6 +60,15 @@ bridge:
     # rule that fired. Denials without a reason are useless; the reason is the point.
     file: audit.log
 
+    # The bridge rotates this file itself, because nothing outside it can: it holds one
+    # appending handle for the life of the process, so logrotate's rename leaves this process
+    # writing to the renamed inode on Linux and fails outright on Windows. `max-size` is where
+    # the live file is rolled to audit.log.1, `max-history` is how many generations are kept
+    # before the oldest is deleted — so the audit log occupies at most max-size × 10 however
+    # long the process runs. Ship them somewhere durable if you need to keep more than that.
+    max-size: 64MB
+    max-history: 9
+
   datasources:
     - name: orders-db
       url: jdbc:postgresql://localhost:5432/orders
@@ -65,6 +77,13 @@ bridge:
       policy:
         # Matched against table names resolved from the parsed SQL, never against the raw
         # query text. A table reached through a join or a view is checked the same way.
+        #
+        # A schema qualifier counts. `public.` and `dbo.` are folded away — those are the
+        # default schemas and `public.orders` is the orders table — but any other schema is
+        # part of the name and has to be written here as `schema.table`. Otherwise a bare
+        # `orders` entry would admit `orders` in every schema of the database, including a
+        # schema created to carry that name.
+        # allow-tables: [reporting.orders]
         allow-tables:
           - customers
           - orders
@@ -111,133 +130,139 @@ bridge:
           allow-tables: [orders]
           statement-timeout: 2s
 
-  # An unconfigured backend registers no tools at all.
-  brokers:
-    - name: orders-kafka
-      bootstrap-servers: localhost:9092
-      # Kafka client settings for a real deployment go here verbatim — security.protocol,
-      # sasl.jaas.config, truststore paths. The bridge's own timeouts are applied after
-      # these, so they cannot be weakened from configuration.
-      client: {}
-      policy:
-        # Wildcards are fine for reads; a topic family is how Kafka is usually organised.
-        allow-topics: ["orders.*", "shipments.*"]
-        max-messages: 50
-        max-result-bytes: 512KB
-        request-timeout: 10s
-
-        # Header values replaced with "[redacted]". `key` and `value` are addressable as
-        # pseudo-headers, so a topic carrying PII in the body can stay readable with the
-        # payload withheld: "orders.events.value".
-        redact-headers:
-          - "*.authorization"
-          - "*.x-api-key"
-
-        # Uncomment ONLY with mode: read-write, and note there is no wildcard here — every
-        # writable topic is named, and `*` is rejected at config load.
-        #
-        # This is what gates kafka.produce and kafka.reset_offsets. Both tools are always
-        # registered; without both opt-ins they answer every call with a refusal that names
-        # which gate stopped it, which is more useful to a model than a missing tool.
-        # allow-write-topics:
-        #   - orders.replay
-  jvms:
-    - name: orders-service
-      # Omit jmx-url to describe the JVM this bridge is running in. That is right when the
-      # bridge is embedded in the application it reports on, and close to useless otherwise —
-      # a standalone bridge with no URL answers every question about itself and none about
-      # the service anyone is asking after.
-      #
-      # The target must be started with JMX exposed, which is a decision about that process,
-      # not this one:
-      #   -Dcom.sun.management.jmxremote.port=9010
-      #   -Dcom.sun.management.jmxremote.rmi.port=9010
-      #   -Djava.rmi.server.hostname=<the address this bridge reaches it on>
-      # An unauthenticated JMX port is remote code execution to anyone who can reach it, so
-      # bind it to localhost or a private network and prefer authentication where the
-      # deployment can carry it.
-      jmx-url: service:jmx:rmi:///jndi/rmi://localhost:9010/jmxrmi
-      # username: ${JMX_USER}
-      # password: ${JMX_PASSWORD}
-
-      # The application's Spring Boot Actuator, which answers what JMX cannot: whether the
-      # databases and brokers it depends on are reachable, which property source supplied the
-      # configuration it is actually using, and its own Micrometer meters.
-      #
-      # Omit this and no jvm.actuator tool is registered at all. Only the path is ever taken
-      # from a tool call — the host is this line — and redirects are not followed.
-      actuator-base-url: http://localhost:8080/actuator
-      # actuator-username: ${ACTUATOR_USER}
-      # actuator-password: ${ACTUATOR_PASSWORD}
-      # actuator-token: ${ACTUATOR_TOKEN}      # bearer, used when no username is set
-
-      policy:
-        # ObjectName patterns, matched against the canonical name — property keys sorted — so
-        # the order they are written in cannot be used to slip past the list.
-        allow-mbeans:
-          - "java.lang:*"              # Memory, MemoryPool, GarbageCollector, Threading, Runtime
-          - "java.nio:*"               # direct and mapped buffer pools
-          - "org.springframework.boot:*"
-          # jvm.jfr_snapshot is guarded on this bean, so listing it is the opt-in for
-          # profiling at all. Leave it out and the tool is still registered and refuses
-          # every call, naming this list — which is more use to a model than a missing tool.
-          - "jdk.management.jfr:type=FlightRecorder"
-
-        # Actuator endpoints, named one at a time. Empty means jvm.actuator refuses every
-        # call — an Actuator that is configured is still not readable until someone says
-        # which parts of it are.
-        #
-        # Enumerated rather than wildcarded because these are nothing like each other in
-        # sensitivity: `health` is a status word, `env` is the whole resolved configuration,
-        # and `heapdump` is every object in memory including every string that has held a
-        # password. Granting them as a group means whoever wanted the first gave away the
-        # third. GET only, so `shutdown` and `loggers` cannot be written to whatever is
-        # listed here.
-        allow-actuator:
-          - health
-          - metrics
-          # - env          # add deliberately: this is the entire resolved configuration
-
-        # Caps a listing and the elements rendered from a single attribute value. A JVM with
-        # 5000 live threads has an AllThreadIds longer than any useful answer.
-        max-results: 100
-        max-result-bytes: 256KB
-        request-timeout: 10s
-
-        # Longest Flight Recorder run jvm.jfr_snapshot may ask the target for, and a different
-        # kind of bound from request-timeout: that one limits how long this bridge waits, this
-        # one limits how long the target carries profiling overhead. It deliberately outlasts
-        # the timeout — a recording cut short costs the application the whole overhead and
-        # returns nothing for it. The tool call blocks for the whole recording, so an MCP
-        # client's own timeout is the practical ceiling here.
-        jfr-max-duration: 30s
-
-        # Matched against `ObjectName.attribute` AND against keys nested inside composite and
-        # tabular values, which is the case that matters: credentials on a JVM are almost
-        # never an attribute called Password, they are a key inside SystemProperties or a word
-        # inside InputArguments. The same patterns are applied to Actuator responses, at every
-        # depth — Actuator does some masking of its own, but that is the target application's
-        # setting rather than this server's, and it can be turned off there.
-        #
-        # Unlike the other backends this list is NOT empty by default. A database exposes
-        # credentials only if someone stored them in a table; a JVM exposes them structurally.
-        # The defaults below apply unless this key is present, and writing it replaces them.
-        redact-attributes:
-          - "*password*"
-          - "*secret*"
-          - "*credential*"
-          - "*passwd*"
-          - "*apikey*"
-          - "*api-key*"
-          - "*.token"
-
-        # There is no allow-write list here, and no mode that produces one. This adapter reads
-        # attributes and nothing else: MBean operations, setAttribute and bean registration are
-        # not exposed at all. The platform beans alone can trigger a full GC, dump the heap to
-        # a path of the caller's choosing and change every logger in the process, and they are
-        # the same beans that carry the attributes worth reading — so there is no allowlist
-        # granular enough to make invoking one a considered decision.
+  # An unconfigured backend registers no tools at all, which is why everything below is
+  # commented out: a straight copy of this file starts against the compose Postgres and
+  # nothing else. Uncommenting a broker or a JVM that is not running does not fail the
+  # startup — it registers tools that cannot answer, and a Kafka AdminClient that retries
+  # a dead bootstrap server for the life of the process. Uncomment the ones you have.
+  # brokers:
+  #   - name: orders-kafka
+  #     bootstrap-servers: localhost:9092
+  #     # Kafka client settings for a real deployment go here verbatim — security.protocol,
+  #     # sasl.jaas.config, truststore paths. The bridge's own timeouts are applied after
+  #     # these, so they cannot be weakened from configuration.
+  #     client: {}
+  #     policy:
+  #       # Wildcards are fine for reads; a topic family is how Kafka is usually organised.
+  #       allow-topics: ["orders.*", "shipments.*"]
+  #       max-messages: 50
+  #       max-result-bytes: 512KB
+  #       request-timeout: 10s
   #
+  #       # Header values replaced with "[redacted]". `key` and `value` are addressable as
+  #       # pseudo-headers, so a topic carrying PII in the body can stay readable with the
+  #       # payload withheld: "orders.events.value".
+  #       redact-headers:
+  #         - "*.authorization"
+  #         - "*.x-api-key"
+  #
+  #       # Uncomment ONLY with mode: read-write, and note there is no wildcard here — every
+  #       # writable topic is named, and `*` is rejected at config load.
+  #       #
+  #       # This is what gates kafka.produce and kafka.reset_offsets. Both tools are always
+  #       # registered; without both opt-ins they answer every call with a refusal that names
+  #       # which gate stopped it, which is more useful to a model than a missing tool.
+  #       # allow-write-topics:
+  #       #   - orders.replay
+  # jvms:
+  #   - name: orders-service
+  #     # Omit jmx-url to describe the JVM this bridge is running in. That is right when the
+  #     # bridge is embedded in the application it reports on, and close to useless otherwise —
+  #     # a standalone bridge with no URL answers every question about itself and none about
+  #     # the service anyone is asking after.
+  #     #
+  #     # The target must be started with JMX exposed, which is a decision about that process,
+  #     # not this one:
+  #     #   -Dcom.sun.management.jmxremote.port=9010
+  #     #   -Dcom.sun.management.jmxremote.rmi.port=9010
+  #     #   -Djava.rmi.server.hostname=<the address this bridge reaches it on>
+  #     # An unauthenticated JMX port is remote code execution to anyone who can reach it, so
+  #     # bind it to localhost or a private network and prefer authentication where the
+  #     # deployment can carry it.
+  #     jmx-url: service:jmx:rmi:///jndi/rmi://localhost:9010/jmxrmi
+  #     # username: ${JMX_USER}
+  #     # password: ${JMX_PASSWORD}
+  #
+  #     # The application's Spring Boot Actuator, which answers what JMX cannot: whether the
+  #     # databases and brokers it depends on are reachable, which property source supplied the
+  #     # configuration it is actually using, and its own Micrometer meters.
+  #     #
+  #     # Omit this and no jvm.actuator tool is registered at all. Only the path is ever taken
+  #     # from a tool call — the host is this line — and redirects are not followed.
+  #     actuator-base-url: http://localhost:8080/actuator
+  #     # actuator-username: ${ACTUATOR_USER}
+  #     # actuator-password: ${ACTUATOR_PASSWORD}
+  #     # actuator-token: ${ACTUATOR_TOKEN}      # bearer, used when no username is set
+  #
+  #     policy:
+  #       # ObjectName patterns, matched against the canonical name — property keys sorted — so
+  #       # the order they are written in cannot be used to slip past the list.
+  #       allow-mbeans:
+  #         - "java.lang:*"              # Memory, MemoryPool, GarbageCollector, Threading, Runtime
+  #         - "java.nio:*"               # direct and mapped buffer pools
+  #         - "org.springframework.boot:*"
+  #         # jvm.jfr_snapshot is guarded on this bean, so listing it is the opt-in for
+  #         # profiling at all. Leave it out and the tool is still registered and refuses
+  #         # every call, naming this list — which is more use to a model than a missing tool.
+  #         - "jdk.management.jfr:type=FlightRecorder"
+  #
+  #       # Actuator endpoints, named one at a time. Empty means jvm.actuator refuses every
+  #       # call — an Actuator that is configured is still not readable until someone says
+  #       # which parts of it are.
+  #       #
+  #       # Enumerated rather than wildcarded because these are nothing like each other in
+  #       # sensitivity: `health` is a status word, `env` is the whole resolved configuration,
+  #       # and `heapdump` is every object in memory including every string that has held a
+  #       # password. Granting them as a group means whoever wanted the first gave away the
+  #       # third. GET only, so `shutdown` and `loggers` cannot be written to whatever is
+  #       # listed here.
+  #       allow-actuator:
+  #         - health
+  #         - metrics
+  #         # - env          # add deliberately: this is the entire resolved configuration
+  #
+  #       # Caps a listing and the elements rendered from a single attribute value. A JVM with
+  #       # 5000 live threads has an AllThreadIds longer than any useful answer.
+  #       max-results: 100
+  #       max-result-bytes: 256KB
+  #       request-timeout: 10s
+  #
+  #       # Longest Flight Recorder run jvm.jfr_snapshot may ask the target for, and a different
+  #       # kind of bound from request-timeout: that one limits how long this bridge waits, this
+  #       # one limits how long the target carries profiling overhead. It deliberately outlasts
+  #       # the timeout — a recording cut short costs the application the whole overhead and
+  #       # returns nothing for it. The tool call blocks for the whole recording, so an MCP
+  #       # client's own timeout is the practical ceiling here.
+  #       jfr-max-duration: 30s
+  #
+  #       # Matched against `ObjectName.attribute` AND against keys nested inside composite and
+  #       # tabular values, which is the case that matters: credentials on a JVM are almost
+  #       # never an attribute called Password, they are a key inside SystemProperties or a word
+  #       # inside InputArguments. The same patterns are applied to Actuator responses, at every
+  #       # depth — Actuator does some masking of its own, but that is the target application's
+  #       # setting rather than this server's, and it can be turned off there.
+  #       #
+  #       # Unlike the other backends this list is NOT empty by default. A database exposes
+  #       # credentials only if someone stored them in a table; a JVM exposes them structurally.
+  #       # The defaults below apply unless this key is present, and writing it replaces them.
+  #       redact-attributes:
+  #         - "*password*"
+  #         - "*secret*"
+  #         - "*credential*"
+  #         - "*passwd*"
+  #         - "*apikey*"
+  #         - "*api-key*"
+  #         - "*.token"
+  #
+  #       # There is no allow-write list here, and no mode that produces one. This adapter reads
+  #       # attributes and nothing else: MBean operations, setAttribute and bean registration are
+  #       # not exposed at all. The platform beans alone can trigger a full GC, dump the heap to
+  #       # a path of the caller's choosing and change every logger in the process, and they are
+  #       # the same beans that carry the attributes worth reading — so there is no allowlist
+  #       # granular enough to make invoking one a considered decision.
+  #
+  # Phase 5, not implemented: adapter-http is a build file and nothing else today, so this
+  # block is a sketch of the intended shape rather than configuration the bridge reads.
   # apis:
   #   - name: billing
   #     openapi-url: http://billing.internal/v3/api-docs

@@ -32,7 +32,7 @@ is the rest of this repository.
 | `adapter-jdbc/` | database | AST-validated read-only SQL, schema introspection |
 | `adapter-kafka/` | broker | Topics, consumer lag, bounded peek, DLQ triage, gated replay and offset reset |
 | `adapter-jvm/` | runtime | JMX MBeans, memory and GC deltas, grouped thread stacks, Actuator, JFR summaries |
-| `adapter-http/` | internal APIs | OpenAPI 3 spec → generated MCP tools |
+| `adapter-http/` | internal APIs | ⬜ **Not built yet** — phase 5. The module exists as a build file and nothing else; OpenAPI 3 spec → generated MCP tools is the plan, not the state. |
 | `server-app/` | executable | Spring Boot: config, transports, auth, health |
 
 ## What "safe" means here
@@ -45,10 +45,14 @@ server, which enforced its checks in one place and had them bypassed:
    exactly one `SELECT` or `WITH`. Comments, whitespace and casing tricks are irrelevant to
    a parse tree.
 2. **Resolved-name allowlists.** Every table the AST references is resolved and matched by
-   name. The allowlist is never matched against the raw query string — that is the hole.
+   name. The allowlist is never matched against the raw query string — that is the hole. A
+   schema qualifier is part of the name: `public.`/`dbo.` fold away, anything else must be
+   allowlisted as `schema.table`, so `secrets.orders` is not `orders`.
 3. **Connection-level enforcement.** `setReadOnly(true)` plus a statement timeout, so a
    permitted query still cannot run forever.
-4. **Result bounds.** Row cap, byte cap, and column redaction by pattern.
+4. **Result bounds.** Row cap, byte cap, and column redaction by pattern. Redaction is decided
+   from the underlying column, not the label, so `SELECT email AS x` is still withheld; a
+   computed column over a redacted one is withheld too.
 
 Writes need *two* independent opt-ins — write mode enabled for that backend **and** the
 specific table or topic on a separate write allowlist. There is no wildcard write allowlist;
@@ -57,7 +61,9 @@ specific table or topic on a separate write allowlist. There is no wildcard writ
 Every call, allowed or denied, is written to a structured audit log with the rule that fired.
 Denials are phrased so the *model* can recover from them — `table "orders" is not in the
 allowlist; visible tables are: customers, order_items` beats a stack trace, and stops the
-model retrying blindly.
+model retrying blindly. The log rotates itself at `bridge.audit.max-size`, keeping
+`bridge.audit.max-history` generations — an external rotator cannot do it, because the sink
+holds one appending handle for the life of the process.
 
 ## Quickstart
 
@@ -69,7 +75,9 @@ cd jvm-mcp-bridge
 
 docker compose up -d postgres          # sample database on :5432
                                        # port taken? BRIDGE_PG_PORT=55432 docker compose up -d postgres
-cp bridge.example.yaml bridge.yaml     # gitignored; edit to point at your system
+cp bridge.example.yaml bridge.yaml     # gitignored; runs as-is against the compose Postgres.
+                                       # The Kafka and JVM sections are commented out — uncomment
+                                       # the backends you actually have and point them at yours.
 ./gradlew :server-app:bootJar
 ```
 
@@ -166,6 +174,13 @@ to close.
 at HTTP 200 and is excluded from liveness and readiness: a dead broker should not restart the
 process or stop the database questions that still work.
 
+Under `transport: http` Actuator shares the port with `/mcp`, so it sits behind the same
+authentication filter: `/actuator/health` names every backend and its version, which is a map
+of the estate. `/actuator/health/liveness` and `/actuator/health/readiness` are the only
+exceptions — a kubelet has no credential to present, and both answer with a status word and
+nothing else. Where the deployment can carry it, `management.server.port` on a port the
+outside cannot reach is still worth doing on top.
+
 ## Build
 
 ```bash
@@ -175,6 +190,12 @@ process or stop the database questions that still work.
 
 Integration tests are `@Tag("integration")` and excluded by default so a clone builds with
 no Docker daemon running. CI runs them as a separate job gated on the fast one.
+
+Every version is an exact pin in `gradle/libs.versions.toml`. Dependabot watches them weekly,
+CI submits the resolved graph so alerts cover transitives too, and a pull request that brings
+in a moderate-or-worse advisory fails the build. Majors of the MCP SDK and JSqlParser are
+ignored deliberately — one tracks a protocol revision and the other is the AST `SqlGuard`
+walks, so both are a code change rather than an upgrade.
 
 ## Skills
 

@@ -137,4 +137,16 @@ public final class ToolRegistry {
     public List<String> toolNames() {
         return List.copyOf(tools.keySet());
     }
+
+    /**
+     * One registered tool by name.
+     *
+     * <p>Exists for tests that assert on a descriptor — a tool description is prompt surface,
+     * and a claim in one ("at most 200 rows", "capped at 30s") that the configuration no longer
+     * backs is a bug the model cannot detect. Reading the descriptor back out of the assembled
+     * registry is how that stays checkable.
+     */
+    public java.util.Optional<BridgeTool> tool(String name) {
+        return java.util.Optional.ofNullable(tools.get(name));
+    }
 }

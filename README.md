@@ -191,6 +191,12 @@ outside cannot reach is still worth doing on top.
 Integration tests are `@Tag("integration")` and excluded by default so a clone builds with
 no Docker daemon running. CI runs them as a separate job gated on the fast one.
 
+Every version is an exact pin in `gradle/libs.versions.toml`. Dependabot watches them weekly,
+CI submits the resolved graph so alerts cover transitives too, and a pull request that brings
+in a moderate-or-worse advisory fails the build. Majors of the MCP SDK and JSqlParser are
+ignored deliberately — one tracks a protocol revision and the other is the AST `SqlGuard`
+walks, so both are a code change rather than an upgrade.
+
 ## Skills
 
 What this repository exercises, and where to look if you want to read the code rather than

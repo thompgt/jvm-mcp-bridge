@@ -262,18 +262,44 @@ public final class SqlGuard {
     }
 
     /**
-     * Folds a possibly qualified, possibly quoted identifier to a bare lower-case name.
+     * Schemas whose name adds nothing to a table's identity, so a reference qualified by one is
+     * the same object as the unqualified reference an operator wrote in the allowlist.
      *
-     * <p>{@code "Public"."Orders"} and {@code public.orders} and {@code ORDERS} must all
-     * resolve to {@code orders}, or the allowlist can be sidestepped by quoting.
+     * <p>Only the defaults: {@code public} on PostgreSQL and H2, {@code dbo} on SQL Server. Any
+     * other schema is part of the name.
+     */
+    private static final Set<String> DEFAULT_SCHEMAS = Set.of("public", "dbo");
+
+    /**
+     * Folds a possibly qualified, possibly quoted identifier to the name the allowlist is
+     * matched against.
+     *
+     * <p>{@code "Public"."Orders"} and {@code public.orders} and {@code ORDERS} must all resolve
+     * to {@code orders}, or the allowlist can be sidestepped by quoting.
+     *
+     * <p>What must <em>not</em> happen is discarding the qualifier outright. Stripping
+     * everything before the last dot made {@code secrets.orders} indistinguishable from
+     * {@code orders}, so allowlisting the orders table silently granted every table named
+     * {@code orders} in every schema of the database — including one created specifically to
+     * carry that name. A non-default schema is therefore kept, and a query that names one is
+     * refused unless the allowlist names it too. That is stricter than before by design: a
+     * schema the operator has not written down is a schema nobody has decided about.
      */
     static String normalise(String rawName) {
-        String name = rawName.trim();
+        String name = rawName.trim()
+                .replace("\"", "")
+                .replace("`", "")
+                .replace("[", "")
+                .replace("]", "")
+                .toLowerCase(Locale.ROOT);
         int lastDot = name.lastIndexOf('.');
-        if (lastDot >= 0) {
-            name = name.substring(lastDot + 1);
+        if (lastDot < 0) {
+            return name;
         }
-        name = name.replace("\"", "").replace("`", "").replace("[", "").replace("]", "");
-        return name.toLowerCase(Locale.ROOT);
+        String qualifier = name.substring(0, lastDot).trim();
+        String bare = name.substring(lastDot + 1).trim();
+        // A bare default schema and nothing else: `public.orders` is `orders`. A catalog in
+        // front of it (`otherdb.public.orders`) is a different database and stays qualified.
+        return DEFAULT_SCHEMAS.contains(qualifier) ? bare : qualifier + "." + bare;
     }
 }

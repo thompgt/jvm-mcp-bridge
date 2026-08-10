@@ -45,7 +45,9 @@ server, which enforced its checks in one place and had them bypassed:
    exactly one `SELECT` or `WITH`. Comments, whitespace and casing tricks are irrelevant to
    a parse tree.
 2. **Resolved-name allowlists.** Every table the AST references is resolved and matched by
-   name. The allowlist is never matched against the raw query string — that is the hole.
+   name. The allowlist is never matched against the raw query string — that is the hole. A
+   schema qualifier is part of the name: `public.`/`dbo.` fold away, anything else must be
+   allowlisted as `schema.table`, so `secrets.orders` is not `orders`.
 3. **Connection-level enforcement.** `setReadOnly(true)` plus a statement timeout, so a
    permitted query still cannot run forever.
 4. **Result bounds.** Row cap, byte cap, and column redaction by pattern. Redaction is decided

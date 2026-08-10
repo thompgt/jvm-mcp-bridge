@@ -153,6 +153,44 @@ class SqlGuardTest {
     }
 
     @Test
+    @DisplayName("a non-default schema is part of the name, not something to strip")
+    void aQualifyingSchemaCannotBeUsedToImpersonateAnAllowlistedTable() {
+        // The bypass: stripping everything before the last dot made `secrets.orders` resolve to
+        // `orders`, so allowlisting the orders table granted every table called `orders` in
+        // every schema — including one created to carry that name.
+        SqlGuard.ReadStatement read = SqlGuard.requireReadOnly("SELECT * FROM secrets.orders");
+
+        assertThat(read.tables()).containsExactly("secrets.orders");
+        assertThat(read.tables()).doesNotContain("orders");
+    }
+
+    @Test
+    void theDefaultSchemaIsStillFoldedAwaySoOrdinaryAllowlistsWork() {
+        // `public.orders` and `dbo.orders` are the orders table; making an operator write the
+        // schema out would be a rule that teaches nothing and breaks every existing config.
+        assertThat(SqlGuard.requireReadOnly("SELECT * FROM public.orders").tables())
+                .containsExactly("orders");
+        assertThat(SqlGuard.requireReadOnly("SELECT * FROM dbo.orders").tables())
+                .containsExactly("orders");
+    }
+
+    @Test
+    @DisplayName("a catalog qualifier is kept even in front of the default schema")
+    void aCrossDatabaseReferenceStaysQualified() {
+        // Three parts means another database. `public` there is not this database's public.
+        SqlGuard.ReadStatement read = SqlGuard.requireReadOnly("SELECT * FROM otherdb.public.orders");
+
+        assertThat(read.tables()).containsExactly("otherdb.public.orders");
+    }
+
+    @Test
+    void quotingCannotHideAQualifyingSchemaEither() {
+        SqlGuard.ReadStatement read = SqlGuard.requireReadOnly("SELECT * FROM \"Secrets\".\"Orders\"");
+
+        assertThat(read.tables()).containsExactly("secrets.orders");
+    }
+
+    @Test
     void setOperationsResolveTablesFromEveryBranch() {
         SqlGuard.ReadStatement read = SqlGuard.requireReadOnly(
                 "SELECT id FROM customers UNION ALL SELECT actor_id FROM internal_audit");

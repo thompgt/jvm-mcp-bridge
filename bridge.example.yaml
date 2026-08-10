@@ -65,6 +65,13 @@ bridge:
       policy:
         # Matched against table names resolved from the parsed SQL, never against the raw
         # query text. A table reached through a join or a view is checked the same way.
+        #
+        # A schema qualifier counts. `public.` and `dbo.` are folded away — those are the
+        # default schemas and `public.orders` is the orders table — but any other schema is
+        # part of the name and has to be written here as `schema.table`. Otherwise a bare
+        # `orders` entry would admit `orders` in every schema of the database, including a
+        # schema created to carry that name.
+        # allow-tables: [reporting.orders]
         allow-tables:
           - customers
           - orders

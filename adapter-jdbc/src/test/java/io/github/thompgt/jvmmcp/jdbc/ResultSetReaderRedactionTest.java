@@ -142,4 +142,31 @@ class ResultSetReaderRedactionTest {
         assertThat(firstRow("SELECT email AS x FROM customers", new Redactor(List.of())))
                 .containsEntry("x", "ada@example.com");
     }
+
+    @Test
+    @DisplayName("the byte cap counts a non-String value by what it will serialise to")
+    void theByteCapMeasuresNonStringValuesRatherThanAssumingTheyAreSmall() throws SQLException {
+        // A driver-specific object — pgjdbc's PGobject for json/jsonb is the real case — used to
+        // be charged a flat 16 bytes, so a megabyte of JSON per row sailed past a 1 MB cap. The
+        // JSON column here is read back as a driver object, not a String.
+        try (Statement s = connection.createStatement()) {
+            s.execute("CREATE TABLE IF NOT EXISTS docs (id INT PRIMARY KEY, body JSON)");
+            s.execute("DELETE FROM docs");
+            for (int i = 1; i <= 5; i++) {
+                s.execute("INSERT INTO docs VALUES (" + i + ", '{\"pad\":\"" + "x".repeat(4000) + "\"}' FORMAT JSON)");
+            }
+        }
+
+        Redactor none = new Redactor(List.of());
+        SqlGuard.ReadStatement read = SqlGuard.requireReadOnly("SELECT id, body FROM docs ORDER BY id");
+        try (Statement s = connection.createStatement();
+                ResultSet rs = s.executeQuery("SELECT id, body FROM docs ORDER BY id")) {
+            // 5 rows of ~4 KB each against a 6 KB cap: honest accounting stops early.
+            ResultSetReader.Page page = ResultSetReader.read(rs, read.tables(), false, 100, 6_000L, none);
+
+            assertThat(page.truncated()).isTrue();
+            assertThat(page.truncationReason()).contains("result size limit");
+            assertThat(page.rows()).hasSizeLessThan(5);
+        }
+    }
 }

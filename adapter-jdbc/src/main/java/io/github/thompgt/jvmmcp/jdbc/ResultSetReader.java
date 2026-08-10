@@ -206,7 +206,15 @@ final class ResultSetReader {
         return rs.wasNull() ? null : value;
     }
 
-    /** Cheap size estimate — exact serialised length is not worth a second pass. */
+    /**
+     * Cheap size estimate — exact serialised length is not worth a second pass.
+     *
+     * <p>Charging a flat 16 bytes for everything that is not a {@code String} is what made the
+     * byte cap ignorable: a pgjdbc {@code PGobject} holding a megabyte of jsonb is not a String,
+     * and neither is a {@code java.sql.Array}. A 1 MB cap was reached after 65,536 rows of it.
+     * Anything not obviously fixed-width is measured through its own {@code toString()}, which
+     * is what the JSON encoder will render anyway.
+     */
     private static long estimateBytes(Object value) {
         if (value == null) {
             return 4;
@@ -214,6 +222,15 @@ final class ResultSetReader {
         if (value instanceof String s) {
             return s.length() + 2L;
         }
-        return 16;
+        if (value instanceof byte[] b) {
+            // Not every binary-ish type is declared BINARY — H2 hands back a byte[] for JSON —
+            // and `String.valueOf` on an array measures the identity hash, not the payload.
+            return b.length + 2L;
+        }
+        if (value instanceof Number || value instanceof Boolean || value instanceof Character) {
+            // Fixed-width and small however they serialise; not worth the toString.
+            return 16;
+        }
+        return String.valueOf(value).length() + 2L;
     }
 }

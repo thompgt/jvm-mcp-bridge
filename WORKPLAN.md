@@ -78,8 +78,14 @@ database, and an unauthenticated request to `/mcp` is refused.
       grouped on plus every header seen, so a bad grouping is recoverable with `error_header`
       rather than fatal. Per-occurrence values in the label are normalised, or a free-text
       error header produces a thousand classes of one — the dump it exists to replace.
-- [ ] **3.6 Write path, gated** — `kafka.produce` and offset reset exist but are refused
-      unless write-mode is on *and* the topic is on the write allowlist. Denials are tested.
+- [x] **3.6 Write path, gated** — `kafka.produce` and `kafka.reset_offsets` are registered
+      unconditionally and refused unless write-mode is on *and* the topic is on the write
+      allowlist. Registered even where they can never run, because a model that cannot see a
+      tool routes around it — usually by asking a human to do the same thing with no allowlist
+      and no audit record — while a model told *why* it was refused stops. `reset_offsets`
+      additionally refuses a group with live members, clamps an out-of-range offset into the
+      retained log, and defaults to `dry_run: true`: it reports how many messages the move
+      would skip unrecoverably before it will make it. Denials are tested per gate.
 
 Done when: against a Redpanda container with a lagging consumer, the model can identify which
 partition is behind and sample the messages stuck there.

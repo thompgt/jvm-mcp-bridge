@@ -1,6 +1,7 @@
 package io.github.thompgt.jvmmcp.kafka;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.thompgt.jvmmcp.core.BridgeTool;
 import io.github.thompgt.jvmmcp.core.ToolOutcome;
@@ -9,6 +10,7 @@ import io.github.thompgt.jvmmcp.policy.AuditSink;
 import io.github.thompgt.jvmmcp.policy.PolicyProfile;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -53,6 +55,21 @@ class KafkaAdapterIntegrationTest {
     private static final String OTHER_TOPIC = "internal.secrets";
     private static final String GROUP = "orders-processor";
 
+    /**
+     * The write fixture is kept away from everything else on purpose.
+     *
+     * <p>{@link #TOPIC} and {@link #GROUP} are asserted on by the read tests down to the exact
+     * committed offset, and a reset test that moved them would make the read tests pass or fail
+     * on execution order. Each reset test also gets its own group, for the same reason applied
+     * one level down: two tests sharing a group means the second one asserts on whatever the
+     * first left behind.
+     */
+    private static final String REPLAY_TOPIC = "orders.replay";
+
+    private static final String DRY_RUN_GROUP = "replay-dry-run";
+    private static final String APPLY_GROUP = "replay-apply";
+    private static final String LIVE_GROUP = "replay-live";
+
     @Container
     private static final RedpandaContainer KAFKA = new RedpandaContainer("redpandadata/redpanda:v25.1.7");
 
@@ -69,6 +86,7 @@ class KafkaAdapterIntegrationTest {
                             new NewTopic(TOPIC, 2, (short) 1),
                             new NewTopic(DLQ_TOPIC, 1, (short) 1),
                             new NewTopic(LEGACY_DLQ_TOPIC, 1, (short) 1),
+                            new NewTopic(REPLAY_TOPIC, 1, (short) 1),
                             new NewTopic(OTHER_TOPIC, 1, (short) 1)))
                     .all()
                     .get();
@@ -87,6 +105,10 @@ class KafkaAdapterIntegrationTest {
             }
             p.send(new ProducerRecord<>(OTHER_TOPIC, "k", "must never reach a model")).get();
             seedDeadLetters(p);
+            for (int i = 0; i < 5; i++) {
+                p.send(new ProducerRecord<>(REPLAY_TOPIC, "r" + i, "replay candidate " + i))
+                        .get();
+            }
         }
 
         // A group that consumed some of partition 0 and none of partition 1, then stopped.
@@ -106,6 +128,15 @@ class KafkaAdapterIntegrationTest {
                     new TopicPartition(TOPIC, 1),
                     new org.apache.kafka.clients.consumer.OffsetAndMetadata(0L));
             c.commitSync(commits);
+        }
+
+        for (String replayGroup : List.of(DRY_RUN_GROUP, APPLY_GROUP)) {
+            consumer.put(ConsumerConfig.GROUP_ID_CONFIG, replayGroup);
+            try (KafkaConsumer<String, String> c = new KafkaConsumer<>(consumer)) {
+                c.commitSync(Map.of(
+                        new TopicPartition(REPLAY_TOPIC, 0),
+                        new org.apache.kafka.clients.consumer.OffsetAndMetadata(1L)));
+            }
         }
 
         handle = new KafkaBrokerHandle(
@@ -181,11 +212,45 @@ class KafkaAdapterIntegrationTest {
     }
 
     private ToolOutcome call(String tool, Map<String, Object> arguments) {
-        BridgeTool found = adapter.tools().stream()
-                .filter(t -> t.descriptor().name().equals(tool))
+        return call(adapter, tool, arguments);
+    }
+
+    private static ToolOutcome call(KafkaAdapter target, String tool, Map<String, Object> arguments) {
+        return tool(target, tool).call(arguments);
+    }
+
+    private static BridgeTool tool(KafkaAdapter target, String name) {
+        return target.tools().stream()
+                .filter(t -> t.descriptor().name().equals(name))
                 .findFirst()
-                .orElseThrow(() -> new AssertionError("no such tool: " + tool));
-        return found.call(arguments);
+                .orElseThrow(() -> new AssertionError("no such tool: " + name));
+    }
+
+    /** A bridge that may write, to exactly the topics named. Everything else is unchanged. */
+    private KafkaAdapter writeAdapter(String... writableTopics) {
+        return new KafkaAdapter(
+                handle,
+                PolicyProfile.builder("orders-kafka")
+                        .mode(AccessMode.READ_WRITE)
+                        .allowRead("orders.*")
+                        .allowWrite(writableTopics)
+                        .maxRows(25)
+                        .maxResultBytes(512_000L)
+                        .timeout(Duration.ofSeconds(15))
+                        .build(),
+                audit);
+    }
+
+    private static long committedOffset(String group, String topic, int partition) throws Exception {
+        Properties props = new Properties();
+        props.put(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, KAFKA.getBootstrapServers());
+        try (Admin client = Admin.create(props)) {
+            org.apache.kafka.clients.consumer.OffsetAndMetadata found = client.listConsumerGroupOffsets(group)
+                    .partitionsToOffsetAndMetadata()
+                    .get()
+                    .get(new TopicPartition(topic, partition));
+            return found == null ? -1L : found.offset();
+        }
     }
 
     @Test
@@ -476,6 +541,215 @@ class KafkaAdapterIntegrationTest {
         assertThat(outcome.error()).isTrue();
         assertThat(outcome.summary()).contains(OTHER_TOPIC).contains("orders.*");
         assertThat(String.valueOf(outcome.structured())).doesNotContain("must never reach a model");
+    }
+
+    @Test
+    @DisplayName("the write tools are listed even where they can never run")
+    void writeToolsExistOnAReadOnlyBridge() {
+        List<String> names =
+                adapter.tools().stream().map(t -> t.descriptor().name()).toList();
+        assertThat(names).contains("kafka.produce", "kafka.reset_offsets");
+
+        // Present so the refusal is explainable, and saying so up front so the model does not
+        // spend a call finding out.
+        String description = tool(adapter, "kafka.produce").descriptor().description();
+        assertThat(description).contains("read_only mode").contains("currently refused");
+        assertThat(tool(adapter, "kafka.reset_offsets").descriptor().annotations().destructiveHint())
+                .isTrue();
+    }
+
+    @Test
+    @DisplayName("produce on a read-only bridge is refused by mode, and writes nothing")
+    void produceIsRefusedInReadOnlyMode() {
+        ToolOutcome outcome =
+                call("kafka.produce", Map.of("topic", REPLAY_TOPIC, "value", "should never be sent"));
+
+        assertThat(outcome.error()).isTrue();
+        assertThat(outcome.summary())
+                .contains("read_only mode")
+                .contains("cannot be changed from a tool call");
+        assertThat(audit.records()).singleElement().satisfies(record -> {
+            assertThat(record.allowed()).isFalse();
+            assertThat(record.rule()).isEqualTo("mode");
+        });
+
+        ToolOutcome peeked = call("kafka.peek", Map.of("topic", REPLAY_TOPIC, "from_offset", 0));
+        assertThat(String.valueOf(peeked.structured())).doesNotContain("should never be sent");
+    }
+
+    @Test
+    @DisplayName("reset_offsets on a read-only bridge is refused by mode, and moves nothing")
+    void resetIsRefusedInReadOnlyMode() throws Exception {
+        ToolOutcome outcome = call(
+                "kafka.reset_offsets",
+                Map.of("group", DRY_RUN_GROUP, "topic", REPLAY_TOPIC, "to", "latest", "dry_run", false));
+
+        assertThat(outcome.error()).isTrue();
+        assertThat(outcome.summary()).contains("read_only mode");
+        assertThat(committedOffset(DRY_RUN_GROUP, REPLAY_TOPIC, 0)).isEqualTo(1L);
+    }
+
+    @Test
+    @DisplayName("write-mode alone is not enough: the topic must be on the write allowlist")
+    void writeModeStillRefusesATopicOffTheWriteAllowlist() {
+        // Readable, and read-write mode is on. Only the second gate refuses this.
+        KafkaAdapter writable = writeAdapter(REPLAY_TOPIC);
+
+        ToolOutcome outcome = call(writable, "kafka.produce", Map.of("topic", DLQ_TOPIC, "value", "not allowed here"));
+
+        assertThat(outcome.error()).isTrue();
+        assertThat(outcome.summary()).contains(DLQ_TOPIC).contains(REPLAY_TOPIC);
+        assertThat(audit.records()).anyMatch(record -> !record.allowed() && "allow-write".equals(record.rule()));
+    }
+
+    @Test
+    @DisplayName("a wildcard write allowlist is refused at startup, not at call time")
+    void writeAllowlistTakesNoWildcards() {
+        assertThatThrownBy(() -> writeAdapter("orders.*"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("every writable resource must be named explicitly");
+    }
+
+    @Test
+    @DisplayName("produce dry-run resolves the record and sends nothing")
+    void produceDryRunSendsNothing() {
+        KafkaAdapter writable = writeAdapter(REPLAY_TOPIC);
+
+        ToolOutcome outcome = call(
+                writable,
+                "kafka.produce",
+                Map.of("topic", REPLAY_TOPIC, "value", "dry run only", "dry_run", true));
+
+        assertThat(outcome.error()).isFalse();
+        assertThat(((Map<?, ?>) outcome.structured()).get("dryRun")).isEqualTo(true);
+        assertThat(outcome.summary()).contains("Nothing was sent");
+
+        ToolOutcome peeked = call("kafka.peek", Map.of("topic", REPLAY_TOPIC, "from_offset", 0));
+        assertThat(String.valueOf(peeked.structured())).doesNotContain("dry run only");
+    }
+
+    @Test
+    @DisplayName("a base64 payload round-trips, so a binary DLQ message can be replayed as it was")
+    void produceWritesThroughBothGates() {
+        KafkaAdapter writable = writeAdapter(REPLAY_TOPIC);
+        String encoded = Base64.getEncoder().encodeToString("replayed order".getBytes(StandardCharsets.UTF_8));
+
+        ToolOutcome outcome = call(
+                writable,
+                "kafka.produce",
+                Map.of(
+                        "topic", REPLAY_TOPIC,
+                        "value", encoded,
+                        "value_encoding", "base64",
+                        "key", "r-replayed",
+                        "headers", Map.of("x-replayed-by", "jvm-mcp-bridge")));
+
+        assertThat(outcome.error()).isFalse();
+        Map<?, ?> structured = (Map<?, ?>) outcome.structured();
+        assertThat(structured.get("dryRun")).isEqualTo(false);
+        assertThat(structured.get("partition")).isEqualTo(0);
+        long offset = ((Number) structured.get("offset")).longValue();
+        assertThat(offset).isGreaterThanOrEqualTo(5L);
+        assertThat(outcome.summary()).contains("cannot be undone");
+
+        // Read it back: base64 in must be the original bytes on the topic, not the base64 text.
+        // Getting this wrong would make every replayed Avro message a corrupt one.
+        ToolOutcome peeked = call("kafka.peek", Map.of("topic", REPLAY_TOPIC, "from_offset", offset));
+        Map<?, ?> record = (Map<?, ?>) ((List<?>) ((Map<?, ?>) peeked.structured()).get("messages")).get(0);
+        assertThat(record.get("value")).isEqualTo("replayed order");
+        assertThat(record.get("key")).isEqualTo("r-replayed");
+        assertThat(((Map<?, ?>) record.get("headers")).get("x-replayed-by")).isEqualTo("jvm-mcp-bridge");
+    }
+
+    @Test
+    @DisplayName("reset_offsets defaults to a preview that counts what would be lost")
+    void resetDefaultsToDryRun() throws Exception {
+        KafkaAdapter writable = writeAdapter(REPLAY_TOPIC);
+
+        // No dry_run argument at all: the destructive call is the one you have to ask for.
+        ToolOutcome outcome = call(
+                writable, "kafka.reset_offsets", Map.of("group", DRY_RUN_GROUP, "topic", REPLAY_TOPIC, "to", "latest"));
+
+        assertThat(outcome.error()).isFalse();
+        Map<?, ?> structured = (Map<?, ?>) outcome.structured();
+        assertThat(structured.get("dryRun")).isEqualTo(true);
+        assertThat(structured.get("applied")).isEqualTo(false);
+        // Committed at 1, five messages on the topic: four would never be processed.
+        assertThat(structured.get("messagesSkipped")).isEqualTo(4L);
+        assertThat(structured.get("messagesReplayed")).isEqualTo(0L);
+        assertThat(outcome.summary()).contains("unprocessed and unrecoverably").contains("Nothing was changed");
+
+        assertThat(committedOffset(DRY_RUN_GROUP, REPLAY_TOPIC, 0)).isEqualTo(1L);
+    }
+
+    @Test
+    @DisplayName("an explicit dry_run false applies exactly what the preview described")
+    void resetAppliesWhenAskedTwice() throws Exception {
+        KafkaAdapter writable = writeAdapter(REPLAY_TOPIC);
+
+        ToolOutcome preview = call(
+                writable, "kafka.reset_offsets", Map.of("group", APPLY_GROUP, "topic", REPLAY_TOPIC, "to", "earliest"));
+        assertThat(((Map<?, ?>) preview.structured()).get("messagesReplayed")).isEqualTo(1L);
+        assertThat(committedOffset(APPLY_GROUP, REPLAY_TOPIC, 0)).isEqualTo(1L);
+
+        ToolOutcome applied = call(
+                writable,
+                "kafka.reset_offsets",
+                Map.of("group", APPLY_GROUP, "topic", REPLAY_TOPIC, "to", "earliest", "dry_run", false));
+
+        assertThat(applied.error()).isFalse();
+        Map<?, ?> structured = (Map<?, ?>) applied.structured();
+        assertThat(structured.get("applied")).isEqualTo(true);
+        assertThat(structured.get("messagesReplayed")).isEqualTo(1L);
+        assertThat(applied.summary()).contains("Applied");
+
+        assertThat(committedOffset(APPLY_GROUP, REPLAY_TOPIC, 0)).isEqualTo(0L);
+    }
+
+    @Test
+    @DisplayName("an offset past the end of the log is clamped, not committed past the topic")
+    void resetClampsAnOutOfRangeOffset() {
+        KafkaAdapter writable = writeAdapter(REPLAY_TOPIC);
+
+        ToolOutcome outcome = call(
+                writable,
+                "kafka.reset_offsets",
+                Map.of("group", DRY_RUN_GROUP, "topic", REPLAY_TOPIC, "to", "offset", "offset", 9_999));
+
+        assertThat(outcome.error()).isFalse();
+        List<?> partitions = (List<?>) ((Map<?, ?>) outcome.structured()).get("partitions");
+        Map<?, ?> p0 = (Map<?, ?>) partitions.get(0);
+        assertThat(p0.get("targetOffset")).isEqualTo(p0.get("logEndOffset"));
+    }
+
+    @Test
+    @DisplayName("a group with a live member is refused, because the member would overwrite the move")
+    void resetIsRefusedWhileConsumersAreRunning() throws Exception {
+        KafkaAdapter writable = writeAdapter(REPLAY_TOPIC);
+
+        Properties props = new Properties();
+        props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, KAFKA.getBootstrapServers());
+        props.put(ConsumerConfig.GROUP_ID_CONFIG, LIVE_GROUP);
+        props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
+        props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
+        props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
+
+        try (KafkaConsumer<String, String> live = new KafkaConsumer<>(props)) {
+            live.subscribe(List.of(REPLAY_TOPIC));
+            // Polling is what actually joins the group; without it there is no member to detect.
+            live.poll(Duration.ofSeconds(10));
+
+            ToolOutcome outcome = call(
+                    writable,
+                    "kafka.reset_offsets",
+                    Map.of("group", LIVE_GROUP, "topic", REPLAY_TOPIC, "to", "earliest", "dry_run", false));
+
+            assertThat(outcome.error()).isTrue();
+            // Not Kafka's UnknownMemberIdException, which says nothing about what to do next.
+            assertThat(outcome.summary())
+                    .contains("live member")
+                    .contains("stopped first");
+        }
     }
 
     @Test

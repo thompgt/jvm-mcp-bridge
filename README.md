@@ -30,7 +30,7 @@ is the rest of this repository.
 | `mcp-core/` | protocol layer | Tool registry, result and error mapping. MCP SDK only — no Spring, no drivers. |
 | `mcp-policy/` | guardrail engine | Allowlists, read/write mode, row and byte caps, timeouts, dry-run, audit. Backend-agnostic. |
 | `adapter-jdbc/` | database | AST-validated read-only SQL, schema introspection |
-| `adapter-kafka/` | broker | Topics, consumer lag, bounded peek, DLQ triage |
+| `adapter-kafka/` | broker | Topics, consumer lag, bounded peek, DLQ triage, gated replay and offset reset |
 | `adapter-jvm/` | runtime | JMX MBeans, memory and threads, Actuator, JFR summaries |
 | `adapter-http/` | internal APIs | OpenAPI 3 spec → generated MCP tools |
 | `server-app/` | executable | Spring Boot: config, transports, auth, health |
@@ -197,7 +197,7 @@ take the claim:
 | 0 — Scaffolding | ✅ |
 | 1 — JDBC vertical slice | ✅ |
 | 2 — Streamable HTTP + auth | ✅ |
-| 3 — Kafka adapter | ⬜ |
+| 3 — Kafka adapter | ✅ |
 | 4 — JVM runtime adapter | ⬜ |
 | 5 — Internal HTTP API bridge | ⬜ |
 | 6 — Hardening and release | ⬜ |

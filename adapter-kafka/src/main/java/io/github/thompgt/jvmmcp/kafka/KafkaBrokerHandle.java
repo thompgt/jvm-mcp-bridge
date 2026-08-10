@@ -9,8 +9,10 @@ import java.util.concurrent.TimeoutException;
 import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
+import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.KafkaFuture;
 import org.apache.kafka.common.serialization.ByteArrayDeserializer;
+import org.apache.kafka.common.serialization.ByteArraySerializer;
 
 /**
  * Owns the {@link Admin} client for one broker, and the client settings every call inherits.
@@ -60,7 +62,14 @@ public final class KafkaBrokerHandle implements AutoCloseable {
         // Bounded reconnect backoff, so a broker that comes back is picked up promptly rather
         // than after an exponential wait that outlasts the call that would have used it.
         props.put(AdminClientConfig.RECONNECT_BACKOFF_MAX_MS_CONFIG, Math.min(millis, 5_000L));
-        props.put(AdminClientConfig.RETRIES_CONFIG, 1);
+        // Retries are deliberately NOT capped. Capping them at 1 looks like it belongs with the
+        // timeouts above and is not the same kind of bound: some admin responses are retriable by
+        // design rather than by failure. A batched offset fetch across several consumer groups
+        // whose coordinators are different brokers answers NOT_COORDINATOR for the ones the first
+        // broker does not own, and the client is expected to re-route and ask again. One retry
+        // turns that normal exchange into "Exceeded maxRetries after 2 tries" as soon as a cluster
+        // has enough groups to spread across coordinators. DEFAULT_API_TIMEOUT_MS above is the
+        // real bound and bounds the whole call however many attempts it takes.
         return props;
     }
 
@@ -92,6 +101,39 @@ public final class KafkaBrokerHandle implements AutoCloseable {
         // deserializer would turn a schema mismatch into a failed call instead of a raw value.
         props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class.getName());
         props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class.getName());
+        return props;
+    }
+
+    /**
+     * Producer settings for the gated write path.
+     *
+     * <p>Built per call rather than held open, and that is deliberate: a bridge that is in
+     * read-only mode — which is every deployment that has not opted in — should not be holding a
+     * producer at all, and a connection that only exists inside a permitted write is one fewer
+     * thing to reason about when asking what this process can do to a cluster.
+     *
+     * <p>{@code acks=all} because a produce that is reported as done and then lost on a broker
+     * failure is worse here than anywhere else: the model will tell someone the message was
+     * replayed. {@code max.block.ms} is bounded for the same reason the admin timeouts are — the
+     * default makes an unknown topic a sixty-second hang rather than an error.
+     */
+    Properties producerConfig() {
+        Properties props = new Properties();
+        props.putAll(clientProperties);
+        props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
+        props.put(ProducerConfig.CLIENT_ID_CONFIG, "jvm-mcp-bridge-produce-" + name);
+        props.put(ProducerConfig.ACKS_CONFIG, "all");
+        props.put(ProducerConfig.MAX_BLOCK_MS_CONFIG, requestTimeout.toMillis());
+        props.put(ProducerConfig.REQUEST_TIMEOUT_MS_CONFIG, (int) requestTimeout.toMillis());
+        props.put(ProducerConfig.DELIVERY_TIMEOUT_MS_CONFIG, (int) requestTimeout.toMillis());
+        // Explicitly zero, and load-bearing rather than tidiness: the producer refuses to start
+        // unless delivery.timeout >= linger + request.timeout, so leaving linger at its default
+        // would make every one of these three values individually reasonable and the combination
+        // a ConfigException at first write. Batching is pointless here anyway — this producer
+        // exists to send exactly one record and then close.
+        props.put(ProducerConfig.LINGER_MS_CONFIG, 0);
+        props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, ByteArraySerializer.class.getName());
+        props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, ByteArraySerializer.class.getName());
         return props;
     }
 

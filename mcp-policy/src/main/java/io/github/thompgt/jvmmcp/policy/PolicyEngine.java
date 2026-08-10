@@ -208,6 +208,19 @@ public final class PolicyEngine {
     }
 
     /**
+     * The write counterpart, which is two gates rather than one: the backend must be in
+     * {@link AccessMode#READ_WRITE}, <em>and</em> every named resource must be on the write
+     * allowlist, which admits no wildcards. Failing either is a denial naming which.
+     *
+     * <p>An adapter must describe the mutation it intends through {@code plan} rather than
+     * reusing the read plan, because a dry-run of a write is the only preview a caller gets of
+     * something irreversible, and "this call is permitted" is not a preview.
+     */
+    public ToolOutcome guardWrite(String tool, List<String> resources, PlanDescriber plan, GuardedCall call) {
+        return guard(PolicyRequest.write(tool, resources), plan, call);
+    }
+
+    /**
      * The timeout an adapter should apply when setting up a connection.
      *
      * <p>The backend default, because pools are built at startup. Per-call bounds come from the

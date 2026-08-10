@@ -67,6 +67,25 @@ public final class Schemas {
             return this;
         }
 
+        /**
+         * A required string restricted to a fixed set of values.
+         *
+         * <p>Worth the extra builder over {@link #requiredString} with the values listed in the
+         * description: the client rejects a wrong value before the call is made, where a
+         * description-only convention costs a round trip and, on a tool that mutates something,
+         * makes the model's first attempt at a destructive call the one that fails.
+         */
+        public ObjectSchema requiredEnum(String name, String description, List<String> values) {
+            properties.put(
+                    name,
+                    Map.of(
+                            "type", "string",
+                            "description", description,
+                            "enum", List.copyOf(values)));
+            required.add(name);
+            return this;
+        }
+
         public ObjectSchema optionalBoolean(String name, String description) {
             properties.put(name, Map.of("type", "boolean", "description", description));
             return this;

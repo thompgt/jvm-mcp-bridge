@@ -111,15 +111,36 @@ bridge:
           allow-tables: [orders]
           statement-timeout: 2s
 
-  # Phase 3+. Present here so the shape is visible; unconfigured backends register no tools.
-  #
-  # brokers:
-  #   - name: orders-kafka
-  #     bootstrap-servers: localhost:9092
-  #     policy:
-  #       allow-topics: ["orders.*", "shipments.*"]
-  #       max-messages: 50
-  #       max-result-bytes: 512KB
+  # An unconfigured backend registers no tools at all.
+  brokers:
+    - name: orders-kafka
+      bootstrap-servers: localhost:9092
+      # Kafka client settings for a real deployment go here verbatim — security.protocol,
+      # sasl.jaas.config, truststore paths. The bridge's own timeouts are applied after
+      # these, so they cannot be weakened from configuration.
+      client: {}
+      policy:
+        # Wildcards are fine for reads; a topic family is how Kafka is usually organised.
+        allow-topics: ["orders.*", "shipments.*"]
+        max-messages: 50
+        max-result-bytes: 512KB
+        request-timeout: 10s
+
+        # Header values replaced with "[redacted]". `key` and `value` are addressable as
+        # pseudo-headers, so a topic carrying PII in the body can stay readable with the
+        # payload withheld: "orders.events.value".
+        redact-headers:
+          - "*.authorization"
+          - "*.x-api-key"
+
+        # Uncomment ONLY with mode: read-write, and note there is no wildcard here — every
+        # writable topic is named, and `*` is rejected at config load.
+        #
+        # This is what gates kafka.produce and kafka.reset_offsets. Both tools are always
+        # registered; without both opt-ins they answer every call with a refusal that names
+        # which gate stopped it, which is more useful to a model than a missing tool.
+        # allow-write-topics:
+        #   - orders.replay
   #
   # jvms:
   #   - name: orders-service

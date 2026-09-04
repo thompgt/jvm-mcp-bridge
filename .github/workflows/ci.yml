@@ -109,7 +109,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/dependency-review-action@v4
+      - uses: actions/dependency-review-action@v5
         with:
           # This process sits between an LLM and a production database; a moderate advisory
           # in the SQL parser is not a moderate problem here.

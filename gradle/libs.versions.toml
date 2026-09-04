@@ -14,7 +14,7 @@ logback = "1.5.18"
 junit = "5.12.2"
 assertj = "3.27.7"
 testcontainers = "1.21.3"
-postgresql = "42.7.7"
+postgresql = "42.7.13"
 # H2 in-memory, tests only: it gives the redaction tests a real driver and real ResultSet
 # metadata without a Docker daemon, so the security cases run in the fast suite.
 h2 = "2.4.240"

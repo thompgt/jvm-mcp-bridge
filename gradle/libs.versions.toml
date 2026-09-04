@@ -13,7 +13,7 @@ slf4j = "2.0.18"
 logback = "1.5.18"
 junit = "5.12.2"
 assertj = "3.27.7"
-testcontainers = "1.21.3"
+testcontainers = "2.0.5"
 postgresql = "42.7.13"
 # H2 in-memory, tests only: it gives the redaction tests a real driver and real ResultSet
 # metadata without a Docker daemon, so the security cases run in the fast suite.

@@ -6,7 +6,7 @@ springBoot = "3.5.3"
 springDependencyManagement = "1.1.7"
 # JSqlParser is what makes the SQL allowlist an AST check rather than a regex.
 jsqlparser = "5.3"
-hikari = "6.3.0"
+hikari = "7.1.0"
 kafkaClients = "4.0.0"
 swaggerParser = "2.1.31"
 slf4j = "2.0.17"

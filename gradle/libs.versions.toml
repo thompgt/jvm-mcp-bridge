@@ -2,7 +2,7 @@
 # MCP Java SDK 2.0.0 (released 2026-06-11) tracks the 2025-11-25 protocol revision.
 # Floor is Java 17; we target 21. See docs/adr/001.
 mcpSdk = "2.0.0"
-springBoot = "3.5.3"
+springBoot = "4.1.0"
 springDependencyManagement = "1.1.7"
 # JSqlParser is what makes the SQL allowlist an AST check rather than a regex.
 jsqlparser = "5.3"
